@@ -1147,6 +1147,24 @@ def main():
             st.session_state['last_training_ran_at'] = time.time()
 
     evals = st.session_state['evaluation_results']
+
+    # Quick diagnostics: show failures in one compact table.
+    try:
+        failed_rows = []
+        for model_name, v in (evals or {}).items():
+            err = v.get('error')
+            if err:
+                failed_rows.append({
+                    'model': model_name,
+                    'error': str(err)[:300] + ('…' if len(str(err)) > 300 else ''),
+                    'training_time_s': v.get('training_time'),
+                })
+        if failed_rows:
+            with st.expander(f'Failed models ({len(failed_rows)})', expanded=True):
+                st.caption('These models failed during training or evaluation. Fix the issue, then retrain.')
+                st.dataframe(pd.DataFrame(failed_rows), use_container_width=True)
+    except Exception:
+        pass
     results_list = [
         {
             'model': k,
