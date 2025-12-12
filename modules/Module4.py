@@ -74,6 +74,8 @@ def build_preprocessor(
     X: pd.DataFrame,
     numeric_impute: str = 'median',
     categorical_impute: str = 'most_frequent',
+    numeric_fill_value: float | int | None = None,
+    categorical_fill_value: str | None = None,
     scaling: str = 'standard',
     encoding: str = 'onehot',
 ):
@@ -88,18 +90,34 @@ def build_preprocessor(
     else:
         scaler = 'passthrough'
 
+    if encoding == 'auto':
+        # Simple heuristic: if total one-hot features would explode, prefer ordinal.
+        # (Keeps the system fast for high-cardinality categoricals.)
+        estimated_onehot_dims = 0
+        for c in categorical_features:
+            estimated_onehot_dims += int(X[c].nunique(dropna=True))
+        encoding = 'ordinal' if estimated_onehot_dims > 200 else 'onehot'
+
     if encoding == 'ordinal':
         encoder = OrdinalEncoder(handle_unknown='use_encoded_value', unknown_value=-1)
     else:
         encoder = OneHotEncoder(handle_unknown='ignore', sparse_output=False)
 
+    numeric_imputer_kwargs = {}
+    if numeric_impute == 'constant':
+        numeric_imputer_kwargs['fill_value'] = 0 if numeric_fill_value is None else numeric_fill_value
+
+    categorical_imputer_kwargs = {}
+    if categorical_impute == 'constant':
+        categorical_imputer_kwargs['fill_value'] = '' if categorical_fill_value is None else categorical_fill_value
+
     numeric_pipe = Pipeline(steps=[
-        ('imputer', SimpleImputer(strategy=numeric_impute)),
+        ('imputer', SimpleImputer(strategy=numeric_impute, **numeric_imputer_kwargs)),
         ('scaler', scaler),
     ])
 
     categorical_pipe = Pipeline(steps=[
-        ('imputer', SimpleImputer(strategy=categorical_impute)),
+        ('imputer', SimpleImputer(strategy=categorical_impute, **categorical_imputer_kwargs)),
         ('encoder', encoder),
     ])
 

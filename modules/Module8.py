@@ -16,6 +16,7 @@ import joblib
 import numpy as np
 import pandas as pd
 import streamlit as st
+from sklearn.metrics import roc_curve
 
 from sklearn.pipeline import Pipeline
 
@@ -47,6 +48,8 @@ from project.modules.Module7 import generate_dataset_overview, export_report_as_
 class PreprocessChoices:
     numeric_impute: str
     categorical_impute: str
+    numeric_fill_value: float | None
+    categorical_fill_value: str | None
     scaling: str
     encoding: str
     outlier_action: str
@@ -62,6 +65,11 @@ def _sanitize_column_name(name: str) -> str:
 @st.cache_data(show_spinner=False)
 def _read_csv_from_upload(uploaded_file) -> pd.DataFrame:
     return pd.read_csv(uploaded_file)
+
+
+@st.cache_data(show_spinner=False)
+def _read_csv_from_bytes(file_bytes: bytes) -> pd.DataFrame:
+    return pd.read_csv(io.BytesIO(file_bytes))
 
 
 def _health_check(df: pd.DataFrame) -> dict[str, Any]:
@@ -114,6 +122,36 @@ def _render_preview_tools(df: pd.DataFrame) -> pd.DataFrame:
     if drop_cols:
         df = df.drop(columns=drop_cols)
 
+    st.markdown('**Create a new feature (combine two numeric columns)**')
+    numeric_cols = df.select_dtypes(include='number').columns.tolist()
+    if len(numeric_cols) >= 2:
+        fc1, fc2, fc3 = st.columns([3, 2, 3])
+        with fc1:
+            col_a = st.selectbox('Column A', options=numeric_cols, key='feat_col_a')
+        with fc2:
+            op = st.selectbox('Operation', options=['+', '-', '*', '/'], key='feat_op')
+        with fc3:
+            col_b = st.selectbox('Column B', options=numeric_cols, key='feat_col_b')
+
+        default_name = _sanitize_column_name(f"{col_a}{op}{col_b}")
+        new_name = st.text_input('New feature name', value=default_name, key='feat_name')
+        if st.button('Add feature'):
+            new_name = _sanitize_column_name(new_name)
+            if new_name in df.columns:
+                st.error('Feature name already exists. Choose a different name.')
+            else:
+                if op == '+':
+                    df[new_name] = df[col_a] + df[col_b]
+                elif op == '-':
+                    df[new_name] = df[col_a] - df[col_b]
+                elif op == '*':
+                    df[new_name] = df[col_a] * df[col_b]
+                else:
+                    df[new_name] = df[col_a] / df[col_b].replace({0: np.nan})
+                st.success(f'Added new feature: {new_name}')
+    else:
+        st.info('Need at least two numeric columns to create a combined feature.')
+
     st.markdown('**Rename columns**')
     rename_df = pd.DataFrame({'current': list(df.columns), 'new': list(df.columns)})
     edited = st.data_editor(rename_df, num_rows='fixed', use_container_width=True)
@@ -131,6 +169,25 @@ def _render_preview_tools(df: pd.DataFrame) -> pd.DataFrame:
             st.info('No column renames detected.')
 
     return df
+
+
+def _render_eda_summary(df: pd.DataFrame, target_col: str):
+    """FR-16: One-page summary of main problems."""
+    issues = _detect_issues(df, target_col)
+    missing_cols = int((df.isna().sum() > 0).sum())
+    total_missing = int(df.isna().sum().sum())
+    out_iqr = issues.get('outliers_iqr', {})
+    out_z = issues.get('outliers_zscore', {})
+    st.markdown('**EDA Summary (main problems)**')
+    st.write({
+        'missing_value_columns': missing_cols,
+        'total_missing_cells': total_missing,
+        'iqr_outlier_columns': len(out_iqr) if isinstance(out_iqr, dict) else 0,
+        'zscore_outlier_columns': len(out_z) if isinstance(out_z, dict) else 0,
+        'high_cardinality_features': len(issues.get('high_cardinality', [])) if isinstance(issues.get('high_cardinality', []), list) else 0,
+        'constant_or_near_constant_features': len(issues.get('constant_features', [])) if isinstance(issues.get('constant_features', []), list) else 0,
+        'class_imbalance_detected': 'class_imbalance' in issues,
+    })
 
 
 def _render_eda(df: pd.DataFrame):
@@ -231,10 +288,14 @@ def _render_issue_detection_and_choices(df: pd.DataFrame, target_col: str) -> tu
     with c1:
         numeric_impute = st.selectbox(
             'Missing values (numeric):',
-            options=['mean', 'median', 'most_frequent'],
+            options=['mean', 'median', 'mode', 'constant'],
             index=1,
             help='How to impute missing values in numeric columns.',
         )
+        numeric_fill_value = None
+        if numeric_impute == 'constant':
+            numeric_fill_value = st.number_input('Numeric constant value', value=0.0, step=1.0)
+
         scaling = st.selectbox(
             'Scaling:',
             options=['standard', 'minmax', 'none'],
@@ -255,9 +316,13 @@ def _render_issue_detection_and_choices(df: pd.DataFrame, target_col: str) -> tu
             index=0,
             help='How to impute missing values in categorical columns.',
         )
+        categorical_fill_value = None
+        if categorical_impute == 'constant':
+            categorical_fill_value = st.text_input('Categorical constant value', value='missing')
+
         encoding = st.selectbox(
             'Categorical encoding:',
-            options=['onehot', 'ordinal'],
+            options=['onehot', 'ordinal', 'auto'],
             index=0,
             help='One-Hot Encoding or Ordinal Encoding.',
         )
@@ -268,9 +333,16 @@ def _render_issue_detection_and_choices(df: pd.DataFrame, target_col: str) -> tu
             help='Cap using IQR bounds, remove outlier rows, or take no action.',
         )
 
+    numeric_impute_strategy = (
+        'median' if numeric_impute == 'median'
+        else ('mean' if numeric_impute == 'mean' else ('most_frequent' if numeric_impute == 'mode' else 'constant'))
+    )
+
     choices = PreprocessChoices(
-        numeric_impute='median' if numeric_impute == 'median' else ('mean' if numeric_impute == 'mean' else 'most_frequent'),
+        numeric_impute=numeric_impute_strategy,
         categorical_impute='most_frequent' if categorical_impute == 'most_frequent' else 'constant',
+        numeric_fill_value=float(numeric_fill_value) if numeric_fill_value is not None else None,
+        categorical_fill_value=str(categorical_fill_value) if categorical_fill_value is not None else None,
         scaling='none' if scaling == 'none' else scaling,
         encoding=encoding,
         outlier_action=outlier_action,
@@ -334,6 +406,8 @@ def main():
 
     with st.sidebar:
         st.header('Configuration')
+        st.caption('Tip: work top-to-bottom; each step unlocks the next.')
+
         primary_metric = st.selectbox('Primary ranking metric', options=['f1', 'accuracy', 'precision', 'recall'], index=0)
         search_type = st.selectbox('Hyperparameter search', options=['grid', 'random'], index=0)
         test_ratio = st.slider('Test split ratio', min_value=0.1, max_value=0.5, value=0.2, step=0.05)
@@ -350,6 +424,15 @@ def main():
         ]
         selected_models = st.multiselect('Models to train', options=model_options, default=model_options)
 
+        st.divider()
+        st.subheader('Progress')
+        has_data = 'uploaded_bytes' in st.session_state
+        has_training = 'evaluation_results' in st.session_state
+        st.write('1) Dataset', '✅' if has_data else '⬜')
+        st.write('2) EDA', '✅' if has_data else '⬜')
+        st.write('3) Preprocessing approval', '✅' if 'preprocess_choices' in st.session_state else '⬜')
+        st.write('4) Training complete', '✅' if has_training else '⬜')
+
         if st.button('Reset session (undo preprocessing/training)'):
             for k in ['raw_df', 'trained_models', 'evaluation_results', 'preprocess_choices', 'issues']:
                 if k in st.session_state:
@@ -357,7 +440,7 @@ def main():
             st.rerun()
 
     uploaded = st.file_uploader('Upload a CSV file', type=['csv'])
-    if uploaded is None:
+    if uploaded is None and 'uploaded_bytes' not in st.session_state:
         st.info('Upload a CSV to start.')
         return
 
@@ -370,7 +453,10 @@ def main():
         pass
 
     try:
-        df = _read_csv_from_upload(uploaded)
+        if uploaded is not None:
+            st.session_state['uploaded_bytes'] = uploaded.getvalue()
+            st.session_state['uploaded_name'] = getattr(uploaded, 'name', 'uploaded.csv')
+        df = _read_csv_from_bytes(st.session_state['uploaded_bytes'])
     except Exception as e:
         st.error(f'File Read Error: {e}')
         return
@@ -391,9 +477,27 @@ def main():
     target_col = st.selectbox('Select target column (classification label)', options=list(df.columns))
 
     _render_basic_info(df, target_col)
+    st.divider()
     _render_eda(df)
+    _render_eda_summary(df, target_col)
+    st.divider()
 
     df_after, choices, issues = _render_issue_detection_and_choices(df, target_col)
+    if issues:
+        try:
+            issue_rows = []
+            for k, v in issues.items():
+                if isinstance(v, dict):
+                    issue_rows.append({'issue': k, 'details': f'{len(v)} items'})
+                elif isinstance(v, list):
+                    issue_rows.append({'issue': k, 'details': f'{len(v)} features'})
+                else:
+                    issue_rows.append({'issue': k, 'details': str(v)})
+            st.markdown('**Issue Summary**')
+            st.dataframe(pd.DataFrame(issue_rows), use_container_width=True)
+        except Exception:
+            pass
+    st.divider()
 
     st.subheader('Train/Test Split Summary')
     try:
@@ -421,6 +525,8 @@ def main():
         X_train,
         numeric_impute=choices.numeric_impute,
         categorical_impute=choices.categorical_impute,
+        numeric_fill_value=choices.numeric_fill_value,
+        categorical_fill_value=choices.categorical_fill_value,
         scaling=choices.scaling,
         encoding=choices.encoding,
     )
@@ -463,11 +569,20 @@ def main():
     comparison_df = show_comparison_table(results_list)
 
     st.subheader('Model Comparison Dashboard')
-    st.dataframe(comparison_df, use_container_width=True)
 
     metric_map = {'f1': 'f1_score', 'accuracy': 'accuracy', 'precision': 'precision', 'recall': 'recall'}
     sort_metric = metric_map[primary_metric]
     ranked = rank_algorithms(comparison_df.reset_index(drop=True), sort_metric)
+
+    valid_ranked = ranked[ranked[sort_metric].notna()]
+    best_name = valid_ranked.iloc[0]['model'] if not valid_ranked.empty else None
+
+    if best_name is not None:
+        display_df = comparison_df.reset_index(drop=True).copy()
+        display_df['best'] = display_df['model'].apply(lambda m: '⭐' if m == best_name else '')
+        st.dataframe(display_df, use_container_width=True)
+    else:
+        st.dataframe(comparison_df, use_container_width=True)
     st.markdown(f'**Ranking by {sort_metric}**')
     st.dataframe(ranked, use_container_width=True)
 
@@ -482,25 +597,115 @@ def main():
 
     # Show confusion matrices
     st.subheader('Confusion Matrices')
+    classes_sorted = sorted(pd.unique(y_test))
     for model_name, v in evals.items():
         if v.get('confusion_matrix') is None:
             continue
         st.markdown(f'**{model_name}**')
         cm = np.array(v['confusion_matrix'])
-        fig = None
+
         import matplotlib.pyplot as plt
         import seaborn as sns
 
-        fig, ax = plt.subplots(figsize=(4, 3))
-        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=ax)
-        ax.set_xlabel('Predicted')
-        ax.set_ylabel('True')
-        fig.tight_layout()
-        st.pyplot(fig, clear_figure=True)
+        # Binary: show a simple 2x2 quadrant matrix with explicit labels
+        if cm.shape == (2, 2):
+            tn, fp, fn, tp = cm.ravel()
+            annot = np.array([
+                [f"TN\n{tn}", f"FP\n{fp}"],
+                [f"FN\n{fn}", f"TP\n{tp}"],
+            ])
+            fig, ax = plt.subplots(figsize=(4.5, 3.5))
+            sns.heatmap(
+                cm,
+                annot=annot,
+                fmt='',
+                cmap='Blues',
+                cbar=False,
+                linewidths=1,
+                linecolor='white',
+                square=True,
+                ax=ax,
+            )
+            ax.set_title('Confusion Matrix (2×2)')
+            ax.set_xlabel('Predicted')
+            ax.set_ylabel('Actual')
+            # Use actual label values if they are simple, otherwise fall back
+            tick_labels = [str(classes_sorted[0]), str(classes_sorted[1])] if len(classes_sorted) == 2 else ['0', '1']
+            ax.set_xticklabels(tick_labels)
+            ax.set_yticklabels(tick_labels, rotation=0)
+            fig.tight_layout()
+            st.pyplot(fig, clear_figure=True)
+        else:
+            # Multiclass: keep readable heatmap with labels
+            fig, ax = plt.subplots(figsize=(6, 4))
+            n = cm.shape[0]
+            # For many classes, forcing every tick label becomes unreadable and can crash
+            # if matplotlib/seaborn auto-reduces ticks.
+            if n <= 10 and len(classes_sorted) == n:
+                labels = [str(c) for c in classes_sorted]
+                sns.heatmap(
+                    cm,
+                    annot=True,
+                    fmt='d',
+                    cmap='Blues',
+                    ax=ax,
+                    xticklabels=labels,
+                    yticklabels=labels,
+                )
+                ax.tick_params(axis='x', rotation=45)
+            elif n <= 25 and len(classes_sorted) == n:
+                labels = [str(c) for c in classes_sorted]
+                sns.heatmap(
+                    cm,
+                    annot=False,
+                    cmap='Blues',
+                    ax=ax,
+                    xticklabels=labels,
+                    yticklabels=labels,
+                )
+                ax.tick_params(axis='x', rotation=45)
+            else:
+                sns.heatmap(cm, annot=False, fmt='d', cmap='Blues', ax=ax)
+                ax.set_xticklabels([])
+                ax.set_yticklabels([])
+                st.caption(f'Confusion matrix has {n} classes; tick labels hidden for readability.')
+            ax.set_title('Confusion Matrix')
+            ax.set_xlabel('Predicted')
+            ax.set_ylabel('Actual')
+            fig.tight_layout()
+            st.pyplot(fig, clear_figure=True)
 
     # Best model + downloads
-    valid_ranked = ranked[ranked[sort_metric].notna()]
-    best_name = valid_ranked.iloc[0]['model'] if not valid_ranked.empty else None
+    # ROC curve (binary only)
+    if is_binary:
+        st.subheader('ROC Curves (Binary Classification)')
+        import matplotlib.pyplot as plt
+
+        fig, ax = plt.subplots(figsize=(6, 4))
+        ax.plot([0, 1], [0, 1], linestyle='--', label='Chance')
+        plotted_any = False
+        for model_name, model_info in st.session_state.get('trained_models', {}).items():
+            model = model_info.get('model')
+            if model is None or not hasattr(model, 'predict_proba'):
+                continue
+            try:
+                # Use already transformed test set via current preprocessor
+                Xt = preprocessor.transform(X_test)
+                proba = model.predict_proba(Xt)[:, 1]
+                fpr, tpr, _ = roc_curve(y_test, proba)
+                ax.plot(fpr, tpr, label=model_name)
+                plotted_any = True
+            except Exception:
+                continue
+        if plotted_any:
+            ax.set_title('ROC Curves')
+            ax.set_xlabel('False Positive Rate')
+            ax.set_ylabel('True Positive Rate')
+            ax.legend(fontsize=8)
+            fig.tight_layout()
+            st.pyplot(fig, clear_figure=True)
+        else:
+            st.info('No ROC curves available (models may not support probabilities).')
 
     st.subheader('Auto-Generated Final Report')
     if best_name:
