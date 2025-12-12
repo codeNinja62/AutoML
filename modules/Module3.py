@@ -29,6 +29,25 @@ def detect_outliers_zscore(df, threshold=3):
             outlier_indices[column] = outliers.index.tolist()
     return outlier_indices
 
+
+def detect_outliers_iqr(df: pd.DataFrame) -> dict[str, int]:
+    """Detect outliers using IQR rule and return counts per numeric column."""
+    out_counts: dict[str, int] = {}
+    numeric_cols = df.select_dtypes(include=[np.number]).columns
+    for column in numeric_cols:
+        q1 = df[column].quantile(0.25)
+        q3 = df[column].quantile(0.75)
+        iqr = q3 - q1
+        if pd.isna(iqr) or iqr == 0:
+            continue
+        lb = q1 - 1.5 * iqr
+        ub = q3 + 1.5 * iqr
+        mask = (df[column] < lb) | (df[column] > ub)
+        count = int(mask.sum())
+        if count > 0:
+            out_counts[str(column)] = count
+    return out_counts
+
 # 3. Detect class imbalance
 def detect_class_imbalance(df, target_column, threshold=0.7):
     class_counts = df[target_column].value_counts(normalize=True)

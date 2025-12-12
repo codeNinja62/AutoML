@@ -6,11 +6,18 @@
 # Train-test split based on user ratio
 
 
-# Imports
-import pandas as pd
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler, OneHotEncoder, OrdinalEncoder
+"""Module 4: Preprocessing utilities."""
+
+from __future__ import annotations
+
 import numpy as np
+import pandas as pd
+
+from sklearn.compose import ColumnTransformer
+from sklearn.impute import SimpleImputer
+from sklearn.model_selection import train_test_split
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import MinMaxScaler, OneHotEncoder, OrdinalEncoder, StandardScaler
 
 # 1. Missing value handling
 def handle_missing_values(df, strategy_dict):
@@ -61,4 +68,54 @@ def split_train_test(df, target_column, test_size=0.2, random_state=42):
     y = df[target_column]
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=random_state)
     return X_train, X_test, y_train, y_test
+
+
+def build_preprocessor(
+    X: pd.DataFrame,
+    numeric_impute: str = 'median',
+    categorical_impute: str = 'most_frequent',
+    scaling: str = 'standard',
+    encoding: str = 'onehot',
+):
+    """Create a ColumnTransformer preprocessor for mixed-type tabular data."""
+    numeric_features = X.select_dtypes(include='number').columns.tolist()
+    categorical_features = [c for c in X.columns if c not in numeric_features]
+
+    if scaling == 'minmax':
+        scaler = MinMaxScaler()
+    elif scaling == 'standard':
+        scaler = StandardScaler()
+    else:
+        scaler = 'passthrough'
+
+    if encoding == 'ordinal':
+        encoder = OrdinalEncoder(handle_unknown='use_encoded_value', unknown_value=-1)
+    else:
+        encoder = OneHotEncoder(handle_unknown='ignore', sparse_output=False)
+
+    numeric_pipe = Pipeline(steps=[
+        ('imputer', SimpleImputer(strategy=numeric_impute)),
+        ('scaler', scaler),
+    ])
+
+    categorical_pipe = Pipeline(steps=[
+        ('imputer', SimpleImputer(strategy=categorical_impute)),
+        ('encoder', encoder),
+    ])
+
+    preprocessor = ColumnTransformer(
+        transformers=[
+            ('num', numeric_pipe, numeric_features),
+            ('cat', categorical_pipe, categorical_features),
+        ],
+        remainder='drop',
+    )
+    return preprocessor
+
+
+def split_train_test_stratified(df: pd.DataFrame, target_column: str, test_size: float = 0.2, random_state: int = 42):
+    X = df.drop(columns=[target_column])
+    y = df[target_column]
+    stratify = y if y.nunique() > 1 else None
+    return train_test_split(X, y, test_size=test_size, random_state=random_state, stratify=stratify)
 

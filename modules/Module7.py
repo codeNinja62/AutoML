@@ -9,10 +9,17 @@
 # Export as PDF/Markdown
 
 
-# Imports
+"""Module 7: Auto-Generated Final Report.
+
+Minimum-spec implementation focuses on generating a downloadable Markdown report.
+"""
+
+from __future__ import annotations
+
+import io
+from typing import Any
+
 import pandas as pd
-from fpdf import FPDF
-import matplotlib.pyplot as plt
 
 # 1. Generate dataset overview section
 def generate_dataset_overview(df):
@@ -48,26 +55,29 @@ def create_comparison_tables(comparison_df):
 def explain_best_model(best_model_info):
     return best_model_info
 
-# 8. Export report as PDF
-def export_report_as_pdf(report_sections, file_path):
-    pdf = FPDF()
-    pdf.set_auto_page_break(auto=True, margin=15)
-    pdf.add_page()
-    pdf.set_font("Arial", size=12)
 
+def _to_markdown_block(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, pd.DataFrame):
+        return value.to_markdown(index=False)
+    if isinstance(value, dict):
+        lines = [f"- **{k}**: {v}" for k, v in value.items()]
+        return "\n".join(lines)
+    return str(value)
+
+
+def build_markdown_report(report_sections: dict[str, Any], title: str = "AutoML Classification Report") -> str:
+    parts: list[str] = [f"# {title}", ""]
     for section_title, content in report_sections.items():
-        pdf.set_font("Arial", 'B', 14)
-        pdf.cell(0, 10, section_title, ln=True)
-        pdf.set_font("Arial", size=12)
+        parts.append(f"## {section_title}")
+        parts.append(_to_markdown_block(content))
+        parts.append("")
+    return "\n".join(parts).strip() + "\n"
 
-        if isinstance(content, dict):
-            for key, value in content.items():
-                pdf.multi_cell(0, 10, f"{key}: {value}")
-        elif isinstance(content, pd.DataFrame):
-            pdf.multi_cell(0, 10, content.to_string())
-        else:
-            pdf.multi_cell(0, 10, str(content))
 
-        pdf.ln(10)
-
-    pdf.output(file_path)
+def export_report_as_markdown_bytes(report_sections: dict[str, Any], title: str = "AutoML Classification Report") -> bytes:
+    md = build_markdown_report(report_sections, title=title)
+    buffer = io.BytesIO()
+    buffer.write(md.encode("utf-8"))
+    return buffer.getvalue()
