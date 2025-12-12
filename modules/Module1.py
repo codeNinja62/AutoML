@@ -52,6 +52,20 @@ def get_unique_counts(df: pd.DataFrame, dropna: bool = True) -> pd.Series:
     return df.nunique(dropna=dropna)
 
 
+def get_constant_columns(df: pd.DataFrame, *, exclude: list[Any] | None = None) -> list[Any]:
+    """Return columns with <= 1 unique value (including NaNs).
+
+    Constant columns carry no predictive signal and can confuse users when models perform poorly.
+    """
+    if exclude is None:
+        exclude = []
+    candidates = [c for c in df.columns if c not in set(exclude)]
+    if not candidates:
+        return []
+    nunique_all = df[candidates].nunique(dropna=False)
+    return [col for col, n in nunique_all.items() if int(n) <= 1]
+
+
 def get_cardinality_buckets(
     df: pd.DataFrame,
     dropna: bool = True,

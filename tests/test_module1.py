@@ -4,6 +4,7 @@ import pandas as pd
 
 from project.modules.Module1 import (
     get_cardinality_buckets,
+    get_constant_columns,
     get_dataset_profile,
     get_dataset_schema,
     get_duplicate_row_count,
@@ -67,6 +68,16 @@ class TestModule1(unittest.TestCase):
         self.assertIn("rows", prof)
         self.assertIn("target", prof)
         self.assertTrue(prof["target"]["ok"])
+
+    def test_constant_columns(self):
+        df = pd.DataFrame({"a": [1, 1, 1], "b": [1, 2, 3], "c": [None, None, None]})
+        const = get_constant_columns(df)
+        self.assertIn("a", const)
+        self.assertIn("c", const)
+        self.assertNotIn("b", const)
+
+        const2 = get_constant_columns(df, exclude=["a"])
+        self.assertNotIn("a", const2)
 
 
 if __name__ == "__main__":

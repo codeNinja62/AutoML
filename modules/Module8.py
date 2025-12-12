@@ -27,6 +27,7 @@ from project.modules.Module1 import (
     get_dataset_schema,
     get_shape,
     get_summary_statistics,
+    get_constant_columns,
     infer_target_candidates,
     validate_target_column,
 )
@@ -721,6 +722,19 @@ def main():
         if len(remaining_features) == 0:
             st.error('No feature columns remain (dataset contains only the target). Add features or upload a dataset with predictors.')
             return
+    except Exception:
+        pass
+
+    # Quality warning: constant feature columns add no predictive signal.
+    try:
+        const_cols = get_constant_columns(df_after, exclude=[target_col])
+        if const_cols:
+            preview = ', '.join([str(c) for c in const_cols[:8]])
+            more = '' if len(const_cols) <= 8 else f' (+{len(const_cols) - 8} more)'
+            st.warning(
+                f'Found {len(const_cols)} constant feature(s): {preview}{more}. '
+                "These won't help models and may indicate a data issue."
+            )
     except Exception:
         pass
     st.divider()
