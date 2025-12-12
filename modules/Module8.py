@@ -1236,6 +1236,24 @@ def main():
         c3.metric('ROC-AUC', float(top_row.get('roc_auc')) if pd.notna(top_row.get('roc_auc')) else None)
         c4.metric('Train time (s)', float(top_row.get('training_time')) if pd.notna(top_row.get('training_time')) else None)
 
+        # Best-model callout with immediate download (so exports aren’t buried).
+        best_model_obj = st.session_state.get('trained_models', {}).get(best_name, {}).get('model')
+        if best_model_obj is not None:
+            left, right = st.columns([2, 1])
+            with left:
+                st.success(f'Best model selected by {sort_metric}: {best_name}')
+                st.caption('Download includes the full trained pipeline (preprocessing + estimator).')
+            with right:
+                buffer = io.BytesIO()
+                joblib.dump(best_model_obj, buffer)
+                st.download_button(
+                    'Download best model',
+                    data=buffer.getvalue(),
+                    file_name='best_model.joblib',
+                    mime='application/octet-stream',
+                    key='dl_best_model_primary',
+                )
+
         display_df = comparison_df.reset_index(drop=True).copy()
         display_df['best'] = display_df['model'].apply(lambda m: '⭐' if m == best_name else '')
         st.dataframe(display_df, use_container_width=True, height=260)
