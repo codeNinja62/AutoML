@@ -72,6 +72,31 @@ class PreprocessChoices:
     outlier_method: str
 
 
+def _format_ts(ts: float | None) -> str:
+    if not ts:
+        return '—'
+    try:
+        return time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(float(ts)))
+    except Exception:
+        return '—'
+
+
+def _estimate_workload_text(search_type: str, cv: int, n_models: int) -> str:
+    # Simple, user-friendly estimate (not exact) to set expectations.
+    if n_models <= 0:
+        return 'Select at least one model.'
+    if cv <= 0:
+        return 'Invalid CV configuration.'
+    base = f"{n_models} model(s) × {cv} fold(s)"
+    if search_type in {'random', 'halving_random'}:
+        return base + ' × ~10 candidates (per model)'
+    if search_type in {'halving_grid'}:
+        return base + ' × (adaptive candidates; faster than full grid)'
+    if search_type == 'grid':
+        return base + ' × (grid size varies by model)'
+    return base
+
+
 def _section(step: int, title: str, caption: str | None = None) -> None:
     st.header(f"Step {step} — {title}")
     if caption:
@@ -503,11 +528,23 @@ def _render_issue_detection_and_choices(df: pd.DataFrame, target_col: str) -> tu
         outlier_method=outlier_method,
     )
     if not apply_now:
+        # Commit-based UX: training should rely on the last applied choices.
+        if 'preprocess_choices' in st.session_state:
+            try:
+                stored = st.session_state.get('preprocess_choices') or {}
+                choices = PreprocessChoices(**stored)
+                st.session_state['preprocess_approved'] = True
+                st.info('Using previously applied preprocessing choices. Change settings and click “Apply preprocessing” to update.')
+            except Exception:
+                st.session_state['preprocess_approved'] = False
+        else:
+            st.session_state['preprocess_approved'] = False
+            st.info('Preprocessing has not been applied yet. Review settings and click “Apply preprocessing (with approval)” to continue to training.')
         return df, choices, issues
 
     # Preprocessing changes the dataset; clear any previously trained artifacts to avoid stale results.
     try:
-        for k in ['trained_models', 'evaluation_results', 'preprocess_choices']:
+        for k in ['trained_models', 'evaluation_results', 'preprocess_choices', 'best_model_name']:
             if k in st.session_state:
                 del st.session_state[k]
         st.info('Cleared previous training results (dataset changed after preprocessing).')
@@ -549,6 +586,15 @@ def _render_issue_detection_and_choices(df: pd.DataFrame, target_col: str) -> tu
             st.write('After')
             st.dataframe(before_df.head(10), use_container_width=True)
     st.success('Preprocessing choices stored for training. (Imputation/encoding/scaling are applied via a sklearn Pipeline during training.)')
+
+    # Persist the applied choices so progress/status is accurate and training can be safely gated.
+    try:
+        st.session_state['preprocess_choices'] = choices.__dict__
+        st.session_state['issues'] = issues
+        st.session_state['preprocess_approved'] = True
+        st.session_state['last_preprocess_applied_at'] = time.time()
+    except Exception:
+        pass
 
     return before_df, choices, issues
 
@@ -656,13 +702,47 @@ def main():
         st.subheader('Progress')
         has_data = 'uploaded_bytes' in st.session_state
         has_training = 'evaluation_results' in st.session_state
+        has_preprocess = bool(st.session_state.get('preprocess_choices'))
         st.write('1) Dataset:', 'Done' if has_data else 'Not yet')
         st.write('2) EDA:', 'Done' if has_data else 'Not yet')
-        st.write('3) Preprocessing approval:', 'Done' if 'preprocess_choices' in st.session_state else 'Not yet')
+        st.write('3) Preprocessing approval:', 'Done' if has_preprocess else 'Not yet')
         st.write('4) Training complete:', 'Done' if has_training else 'Not yet')
 
-        if st.button('Reset session (undo changes)'):
-            for k in ['raw_df', 'working_df', 'working_df_sig', 'trained_models', 'evaluation_results', 'preprocess_choices', 'issues', 'train_cfg', 'selected_models']:
+        with st.expander('Status snapshot', expanded=True):
+            st.write('Dataset:', st.session_state.get('uploaded_name', '—'))
+            st.write('Loaded at:', _format_ts(st.session_state.get('last_dataset_loaded_at')))
+            st.write('Preprocessing applied at:', _format_ts(st.session_state.get('last_preprocess_applied_at')))
+            st.write('Training run at:', _format_ts(st.session_state.get('last_training_ran_at')))
+            st.write('Best model:', st.session_state.get('best_model_name', '—'))
+
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button('Reset training results'):
+                for k in ['trained_models', 'evaluation_results', 'best_model_name', 'last_training_ran_at']:
+                    if k in st.session_state:
+                        del st.session_state[k]
+                st.rerun()
+        with c2:
+            if st.button('Reset preprocessing'):
+                for k in ['preprocess_choices', 'preprocess_approved', 'last_preprocess_applied_at']:
+                    if k in st.session_state:
+                        del st.session_state[k]
+                # Resetting preprocessing implies training results are stale.
+                for k in ['trained_models', 'evaluation_results', 'best_model_name', 'last_training_ran_at']:
+                    if k in st.session_state:
+                        del st.session_state[k]
+                st.rerun()
+
+        if st.button('Reset session (start over)'):
+            for k in [
+                'uploaded_bytes', 'uploaded_name',
+                'raw_df', 'working_df', 'working_df_sig',
+                'trained_models', 'evaluation_results',
+                'preprocess_choices', 'preprocess_approved',
+                'issues', 'train_cfg', 'selected_models',
+                'best_model_name',
+                'last_dataset_loaded_at', 'last_preprocess_applied_at', 'last_training_ran_at',
+            ]:
                 if k in st.session_state:
                     del st.session_state[k]
             st.rerun()
@@ -696,6 +776,11 @@ def main():
         st.session_state['raw_df'] = df
         st.session_state['working_df'] = df
         st.session_state['working_df_sig'] = sig
+        st.session_state['last_dataset_loaded_at'] = time.time()
+        # New dataset => any prior approvals/results are stale.
+        for k in ['trained_models', 'evaluation_results', 'preprocess_choices', 'preprocess_approved', 'issues', 'best_model_name', 'last_preprocess_applied_at', 'last_training_ran_at']:
+            if k in st.session_state:
+                del st.session_state[k]
 
     df = st.session_state.get('working_df', df)
 
@@ -842,7 +927,25 @@ def main():
 
     st.subheader('Training')
     st.caption('Tip: start with fewer models for faster iteration, then expand the list once the dataset looks good.')
-    run_training = st.button('Train models', type='primary')
+    st.markdown('**Current settings (applied)**')
+    applied_choices = st.session_state.get('preprocess_choices') or choices.__dict__
+    st.write(
+        f"Preprocessing: impute(num={applied_choices.get('numeric_impute')}, cat={applied_choices.get('categorical_impute')}), "
+        f"scale={applied_choices.get('scaling')}, encode={applied_choices.get('encoding')}, "
+        f"outliers={applied_choices.get('outlier_action')} ({applied_choices.get('outlier_method')})"
+    )
+    st.write(f"Training: metric={primary_metric}, search={search_type}, test_ratio={test_ratio}, cv={cv}, models={len(selected_models)}")
+    st.caption('Estimated workload: ' + _estimate_workload_text(search_type, int(cv), int(len(selected_models))))
+
+    disable_reasons: list[str] = []
+    if not selected_models:
+        disable_reasons.append('Select at least one model in the sidebar.')
+    if not bool(st.session_state.get('preprocess_approved')):
+        disable_reasons.append('Apply preprocessing (Step 4) before training.')
+
+    run_training = st.button('Train models', type='primary', disabled=bool(disable_reasons))
+    if disable_reasons:
+        st.info('Training is disabled: ' + ' '.join(disable_reasons))
     if not run_training and 'evaluation_results' not in st.session_state:
         st.info('Click “Train models” to run training and evaluation.')
         return
@@ -882,6 +985,7 @@ def main():
             st.session_state['evaluation_results'] = evals
             st.session_state['preprocess_choices'] = choices.__dict__
             st.session_state['issues'] = issues
+            st.session_state['last_training_ran_at'] = time.time()
 
     evals = st.session_state['evaluation_results']
     results_list = [
@@ -910,6 +1014,10 @@ def main():
 
     valid_ranked = ranked[ranked[sort_metric].notna()]
     best_name = valid_ranked.iloc[0]['model'] if not valid_ranked.empty else None
+    try:
+        st.session_state['best_model_name'] = best_name
+    except Exception:
+        pass
 
     if best_name is not None:
         top_row = valid_ranked.iloc[0]
