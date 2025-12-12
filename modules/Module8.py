@@ -46,6 +46,7 @@ from project.modules.Module2 import (
     train_test_split_summary,
 )
 from project.modules.Module3 import (
+    detect_issues,
     detect_class_imbalance,
     detect_constant_features,
     detect_high_cardinality,
@@ -327,68 +328,109 @@ def _render_eda(df: pd.DataFrame, *, target_col: Any, test_ratio: float):
 
 
 def _detect_issues(df: pd.DataFrame, target_col: str) -> dict[str, Any]:
-    warnings: dict[str, Any] = {}
+    # Prefer the structured API from Module3. (Keeps the summary keys stable for other code paths.)
+    try:
+        return detect_issues(df, target_column=target_col)
+    except Exception:
+        # Fallback to legacy behavior if anything goes wrong.
+        warnings: dict[str, Any] = {}
 
-    mv = detect_missing_values(df)
-    if not mv.empty:
-        warnings['missing_values'] = mv.to_dict()
+        mv = detect_missing_values(df)
+        if not mv.empty:
+            warnings['missing_values'] = mv.to_dict()
 
-    outliers_z = detect_outliers_zscore(df)
-    if outliers_z:
-        warnings['outliers_zscore'] = {k: len(v) for k, v in outliers_z.items()}
+        outliers_z = detect_outliers_zscore(df)
+        if outliers_z:
+            warnings['outliers_zscore'] = {k: len(v) for k, v in outliers_z.items()}
 
-    outliers_iqr = detect_outliers_iqr(df)
-    if outliers_iqr:
-        warnings['outliers_iqr'] = outliers_iqr
+        outliers_iqr = detect_outliers_iqr(df)
+        if outliers_iqr:
+            warnings['outliers_iqr'] = outliers_iqr
 
-    imbalance = detect_class_imbalance(df, target_col)
-    if not imbalance.empty:
-        warnings['class_imbalance'] = imbalance.to_dict()
+        imbalance = detect_class_imbalance(df, target_col)
+        if not imbalance.empty:
+            warnings['class_imbalance'] = imbalance.to_dict()
 
-    high_card = detect_high_cardinality(df)
-    if high_card:
-        warnings['high_cardinality'] = high_card
+        high_card = detect_high_cardinality(df)
+        if high_card:
+            warnings['high_cardinality'] = high_card
 
-    constant = detect_constant_features(df)
-    if constant:
-        warnings['constant_features'] = constant
+        constant = detect_constant_features(df)
+        if constant:
+            warnings['constant_features'] = constant
 
-    return warnings
+        return warnings
 
 
 def _render_issue_detection_and_choices(df: pd.DataFrame, target_col: str) -> tuple[pd.DataFrame, PreprocessChoices, dict[str, Any]]:
     st.subheader('Issue detection & approval')
     issues = _detect_issues(df, target_col)
 
+    findings = issues.get('findings', []) if isinstance(issues, dict) else []
+
     if not issues:
         st.success('No major data quality issues detected with default rules.')
     else:
-        issue_rows = []
-        for k, v in issues.items():
-            if isinstance(v, dict):
-                issue_rows.append({'issue': k, 'count': len(v), 'notes': 'dictionary details'})
-            elif isinstance(v, list):
-                issue_rows.append({'issue': k, 'count': len(v), 'notes': 'feature list'})
-            else:
-                issue_rows.append({'issue': k, 'count': None, 'notes': str(v)})
-        st.dataframe(pd.DataFrame(issue_rows), use_container_width=True)
+        if findings:
+            st.dataframe(
+                pd.DataFrame(
+                    [
+                        {
+                            'issue': f.get('key'),
+                            'severity': f.get('severity'),
+                            'affected_cols': len(f.get('affected_columns', []) or []),
+                            'title': f.get('title'),
+                        }
+                        for f in findings
+                    ]
+                ),
+                use_container_width=True,
+            )
+        else:
+            # Backwards-compatible display
+            issue_rows = []
+            for k, v in issues.items():
+                if k == 'findings':
+                    continue
+                if isinstance(v, dict):
+                    issue_rows.append({'issue': k, 'count': len(v), 'notes': 'dictionary details'})
+                elif isinstance(v, list):
+                    issue_rows.append({'issue': k, 'count': len(v), 'notes': 'feature list'})
+                else:
+                    issue_rows.append({'issue': k, 'count': None, 'notes': str(v)})
+            st.dataframe(pd.DataFrame(issue_rows), use_container_width=True)
 
         with st.expander('Issue details', expanded=False):
-            for k, v in issues.items():
-                st.warning(f"Detected: {k}")
-                st.write(v)
+            if findings:
+                for f in findings:
+                    sev = (f.get('severity') or 'warning').lower()
+                    title = f.get('title') or f.get('key')
+                    cols = f.get('affected_columns', []) or []
+                    desc = f.get('description') or ''
+                    fixes = f.get('suggested_fixes', []) or []
 
-        with st.expander('Suggested fixes (examples)', expanded=False):
-            if 'missing_values' in issues:
-                st.write('- Impute missing numeric values with median; categorical with most frequent.')
-            if 'outliers_iqr' in issues or 'outliers_zscore' in issues:
-                st.write('- Cap outliers (IQR) or remove extreme rows if justified by domain knowledge.')
-            if 'class_imbalance' in issues:
-                st.write('- Evaluate with F1-score; stratified split is enabled by default.')
-            if 'high_cardinality' in issues:
-                st.write('- Prefer One-Hot encoding when feasible; use Ordinal only when categories are ordered.')
-            if 'constant_features' in issues:
-                st.write('- Drop constant/near-constant features before training.')
+                    if sev == 'critical':
+                        st.error(title)
+                    elif sev == 'info':
+                        st.info(title)
+                    else:
+                        st.warning(title)
+
+                    if desc:
+                        st.write(desc)
+                    if cols:
+                        st.caption('Affected columns')
+                        st.write(', '.join([str(c) for c in cols[:25]]) + ('' if len(cols) <= 25 else f' (+{len(cols) - 25} more)'))
+                    if fixes:
+                        st.caption('Suggested fixes')
+                        for fx in fixes:
+                            st.write(f"- {fx}")
+            else:
+                for k, v in issues.items():
+                    if k == 'findings':
+                        continue
+                    st.warning(f"Detected: {k}")
+                    st.write(v)
 
     st.markdown('**Choose preprocessing options (applied only when you click “Apply preprocessing”)**')
 
