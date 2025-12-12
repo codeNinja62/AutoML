@@ -536,8 +536,8 @@ def main():
             )
             search_type = st.selectbox(
                 'Hyperparameter search',
-                options=['grid', 'random'],
-                index=['grid', 'random'].index(cfg.get('search_type', 'grid')),
+                options=['grid', 'random', 'halving_grid', 'halving_random'],
+                index=['grid', 'random', 'halving_grid', 'halving_random'].index(cfg.get('search_type', 'grid')),
                 key='cfg_search_type',
             )
             test_ratio = st.slider(
@@ -723,6 +723,8 @@ def main():
             'recall': v.get('recall'),
             'f1_score': v.get('f1_score'),
             'roc_auc': v.get('roc_auc'),
+            'cv_mean': v.get('cv_mean'),
+            'cv_std': v.get('cv_std'),
             'training_time': v.get('training_time'),
             'best_params': v.get('best_params'),
             'error': v.get('error'),

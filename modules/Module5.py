@@ -18,7 +18,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 from joblib import Memory
-from sklearn.model_selection import GridSearchCV, RandomizedSearchCV, StratifiedKFold
+from sklearn.model_selection import GridSearchCV, RandomizedSearchCV, StratifiedKFold, cross_val_score
 from sklearn.pipeline import Pipeline
 from sklearn.linear_model import LogisticRegression
 from sklearn.neighbors import KNeighborsClassifier
@@ -49,6 +49,7 @@ def train_and_optimize_models(
     n_jobs: int | None = -1,
     cache: bool = True,
     class_weight_auto: bool = False,
+    compute_cv_summary: bool = True,
 ):
     cw = 'balanced' if class_weight_auto else None
     models: dict[str, tuple[Any, dict[str, Any]]] = {
@@ -88,6 +89,9 @@ def train_and_optimize_models(
             continue
         start_time = time.time()
         
+        cv_mean: float | None = None
+        cv_std: float | None = None
+
         try:
             # Best practice: run CV/search on the full pipeline so preprocessing happens inside each fold.
             if preprocessor is not None:
@@ -118,6 +122,34 @@ def train_and_optimize_models(
                     scoring=scoring,
                     random_state=random_state,
                 )
+            elif search_type in {'halving_grid', 'halving_random'} and tuned_params:
+                # Optional faster search that prunes weak configs early.
+                try:
+                    from sklearn.experimental import enable_halving_search_cv  # noqa: F401
+                    from sklearn.model_selection import HalvingGridSearchCV, HalvingRandomSearchCV
+                except Exception as ie:
+                    raise RuntimeError('Halving search not available in this scikit-learn build.') from ie
+
+                if search_type == 'halving_grid':
+                    search = HalvingGridSearchCV(
+                        estimator,
+                        tuned_params,
+                        cv=cv_splitter,
+                        factor=3,
+                        scoring=scoring,
+                        n_jobs=n_jobs,
+                    )
+                else:
+                    search = HalvingRandomSearchCV(
+                        estimator,
+                        tuned_params,
+                        cv=cv_splitter,
+                        factor=3,
+                        scoring=scoring,
+                        n_jobs=n_jobs,
+                        n_candidates=12,
+                        random_state=random_state,
+                    )
             else:
                 search = estimator
 
@@ -130,10 +162,28 @@ def train_and_optimize_models(
                 (k.replace('model__', '', 1) if isinstance(k, str) else k): v
                 for k, v in (best_params_raw or {}).items()
             }
+
+            # CV summary for trustworthiness: mean ± std across folds.
+            if compute_cv_summary:
+                if hasattr(fitted, 'cv_results_') and hasattr(fitted, 'best_index_'):
+                    try:
+                        idx = int(fitted.best_index_)
+                        cv_mean = float(fitted.cv_results_['mean_test_score'][idx])
+                        cv_std = float(fitted.cv_results_['std_test_score'][idx])
+                    except Exception:
+                        cv_mean, cv_std = None, None
+                elif hasattr(fitted, 'score'):
+                    try:
+                        scores = cross_val_score(fitted, X_train, y_train, cv=cv_splitter, n_jobs=n_jobs, scoring=scoring)
+                        cv_mean = float(np.mean(scores))
+                        cv_std = float(np.std(scores))
+                    except Exception:
+                        cv_mean, cv_std = None, None
             error = None
         except Exception as e:
             best_estimator = None
             best_params = {}
+            cv_mean, cv_std = None, None
             error = str(e)
         
         end_time = time.time()
@@ -143,6 +193,9 @@ def train_and_optimize_models(
             'model': best_estimator,
             'best_params': best_params,
             'training_time': training_time,
+            'cv_mean': cv_mean,
+            'cv_std': cv_std,
+            'cv_folds': int(cv),
             'error': error,
         }
     
@@ -168,6 +221,9 @@ def evaluate_models(models, X_test, y_test):
                 'roc_auc': None,
                 'confusion_matrix': None,
                 'training_time': model_info.get('training_time'),
+                'cv_mean': model_info.get('cv_mean'),
+                'cv_std': model_info.get('cv_std'),
+                'cv_folds': model_info.get('cv_folds'),
                 'best_params': model_info.get('best_params', {}),
                 'error': model_info.get('error'),
             }
@@ -195,6 +251,9 @@ def evaluate_models(models, X_test, y_test):
                 'roc_auc': roc_auc,
                 'confusion_matrix': conf_matrix,
                 'training_time': model_info.get('training_time'),
+                'cv_mean': model_info.get('cv_mean'),
+                'cv_std': model_info.get('cv_std'),
+                'cv_folds': model_info.get('cv_folds'),
                 'best_params': model_info.get('best_params', {}),
                 'error': None,
             }
@@ -208,6 +267,9 @@ def evaluate_models(models, X_test, y_test):
                 'roc_auc': None,
                 'confusion_matrix': None,
                 'training_time': model_info.get('training_time'),
+                'cv_mean': model_info.get('cv_mean'),
+                'cv_std': model_info.get('cv_std'),
+                'cv_folds': model_info.get('cv_folds'),
                 'best_params': model_info.get('best_params', {}),
                 'error': str(e),
             }
