@@ -386,56 +386,6 @@ def _render_issue_detection_and_choices(df: pd.DataFrame, target_col: str) -> tu
             )
 
         apply_now = st.form_submit_button('Apply preprocessing (with approval)')
-    st.markdown('**Choose preprocessing options (nothing is applied until you confirm)**')
-    c1, c2 = st.columns(2)
-
-    with c1:
-        numeric_impute = st.selectbox(
-            'Missing values (numeric):',
-            options=['mean', 'median', 'mode', 'constant'],
-            index=1,
-            help='How to impute missing values in numeric columns.',
-        )
-        numeric_fill_value = None
-        if numeric_impute == 'constant':
-            numeric_fill_value = st.number_input('Numeric constant value', value=0.0, step=1.0)
-
-        scaling = st.selectbox(
-            'Scaling:',
-            options=['standard', 'minmax', 'none'],
-            index=0,
-            help='StandardScaler or MinMaxScaler (or no scaling).',
-        )
-        outlier_method = st.selectbox(
-            'Outlier detection method:',
-            options=['iqr', 'zscore'],
-            index=0,
-            help='Used to decide which rows/values are considered outliers.',
-        )
-
-    with c2:
-        categorical_impute = st.selectbox(
-            'Missing values (categorical):',
-            options=['most_frequent', 'constant'],
-            index=0,
-            help='How to impute missing values in categorical columns.',
-        )
-        categorical_fill_value = None
-        if categorical_impute == 'constant':
-            categorical_fill_value = st.text_input('Categorical constant value', value='missing')
-
-        encoding = st.selectbox(
-            'Categorical encoding:',
-            options=['onehot', 'ordinal', 'auto'],
-            index=0,
-            help='One-Hot Encoding or Ordinal Encoding.',
-        )
-        outlier_action = st.selectbox(
-            'Outlier handling:',
-            options=['no_action', 'cap_iqr', 'remove_rows'],
-            index=0,
-            help='Cap using IQR bounds, remove outlier rows, or take no action.',
-        )
 
     numeric_impute_strategy = (
         'median' if numeric_impute == 'median'
@@ -452,8 +402,6 @@ def _render_issue_detection_and_choices(df: pd.DataFrame, target_col: str) -> tu
         outlier_action=outlier_action,
         outlier_method=outlier_method,
     )
-
-    apply_now = st.button('Apply preprocessing (with approval)')
     if not apply_now:
         return df, choices, issues
 
