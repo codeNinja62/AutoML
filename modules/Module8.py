@@ -148,6 +148,10 @@ def _render_preview_tools(df: pd.DataFrame) -> pd.DataFrame:
         if drop_apply and drop_cols:
             df = df.drop(columns=drop_cols)
             st.success(f'Removed {len(drop_cols)} column(s).')
+            # Dataset changed; clear any previously trained artifacts to avoid stale results.
+            for k in ['trained_models', 'evaluation_results', 'preprocess_choices', 'issues']:
+                if k in st.session_state:
+                    del st.session_state[k]
 
         st.divider()
         st.markdown('**Feature creation (combine two numeric columns)**')
@@ -179,6 +183,10 @@ def _render_preview_tools(df: pd.DataFrame) -> pd.DataFrame:
                     else:
                         df[new_name] = df[col_a] / df[col_b].replace({0: np.nan})
                     st.success(f'Added new feature: {new_name}')
+                    # Dataset changed; clear any previously trained artifacts to avoid stale results.
+                    for k in ['trained_models', 'evaluation_results', 'preprocess_choices', 'issues']:
+                        if k in st.session_state:
+                            del st.session_state[k]
         else:
             st.info('Need at least two numeric columns to create a combined feature.')
 
@@ -198,6 +206,10 @@ def _render_preview_tools(df: pd.DataFrame) -> pd.DataFrame:
             if mapping:
                 df = df.rename(columns=mapping)
                 st.success('Renamed columns applied.')
+                # Dataset changed; clear any previously trained artifacts to avoid stale results.
+                for k in ['trained_models', 'evaluation_results', 'preprocess_choices', 'issues']:
+                    if k in st.session_state:
+                        del st.session_state[k]
             else:
                 st.info('No column renames detected.')
 
