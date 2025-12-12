@@ -36,6 +36,82 @@ from sklearn.metrics import (
     confusion_matrix,
 )
 
+
+def _compute_roc_auc(model, X_test, y_test) -> float | None:
+    """Compute ROC-AUC for binary or multiclass classification.
+
+    - Binary: uses predict_proba[:, 1] if available, else decision_function.
+    - Multiclass: uses OVR ROC-AUC with weighted average.
+    Returns None if it cannot be computed safely.
+    """
+
+    try:
+        y_true = pd.Series(y_test)
+        y_true_non_null = y_true.dropna()
+        if y_true_non_null.empty:
+            return None
+
+        classes = None
+        if hasattr(model, 'classes_'):
+            try:
+                classes = list(model.classes_)
+            except Exception:
+                classes = None
+        if classes is None:
+            classes = sorted(pd.unique(y_true_non_null))
+
+        n_classes = len(classes)
+        if n_classes < 2:
+            return None
+
+        # Require all classes present in y_test for multiclass AUC.
+        present = set(pd.unique(y_true_non_null))
+        if n_classes > 2 and not set(classes).issubset(present):
+            return None
+
+        # Score extraction
+        y_score = None
+        if hasattr(model, 'predict_proba'):
+            try:
+                y_score = model.predict_proba(X_test)
+            except Exception:
+                y_score = None
+        if y_score is None and hasattr(model, 'decision_function'):
+            try:
+                y_score = model.decision_function(X_test)
+            except Exception:
+                y_score = None
+
+        if y_score is None:
+            return None
+
+        y_score_arr = np.asarray(y_score)
+        if n_classes == 2:
+            # Ensure we pass a continuous score for the positive class.
+            pos_label = classes[1]
+            y_true_bin = (y_true == pos_label).astype(int)
+            if y_score_arr.ndim == 2 and y_score_arr.shape[1] >= 2:
+                y_score_pos = y_score_arr[:, 1]
+            else:
+                y_score_pos = y_score_arr.reshape(-1)
+            return float(roc_auc_score(y_true_bin, y_score_pos))
+
+        # Multiclass (n_samples, n_classes)
+        if y_score_arr.ndim != 2 or y_score_arr.shape[1] != n_classes:
+            return None
+
+        return float(
+            roc_auc_score(
+                y_true,
+                y_score_arr,
+                multi_class='ovr',
+                average='weighted',
+                labels=classes,
+            )
+        )
+    except Exception:
+        return None
+
 # 1. Train multiple classifiers with hyperparameter optimization
 def train_and_optimize_models(
     X_train,
@@ -268,10 +344,7 @@ def evaluate_models(models, X_test, y_test):
             f1 = f1_score(y_test, y_pred, average=average, zero_division=0)
             conf_matrix = confusion_matrix(y_test, y_pred)
 
-            roc_auc = None
-            if is_binary and hasattr(model, 'predict_proba'):
-                y_proba = model.predict_proba(X_test)[:, 1]
-                roc_auc = roc_auc_score(y_test, y_proba)
+            roc_auc = _compute_roc_auc(model, X_test, y_test)
 
             evaluation_results[model_name] = {
                 'model': model_name,
