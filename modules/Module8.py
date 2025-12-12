@@ -714,6 +714,15 @@ def main():
             st.error(e)
         st.info('Preprocessing made the target invalid (e.g., only one class left). Adjust preprocessing or choose another target.')
         return
+
+    # Safety: ensure at least one feature column remains.
+    try:
+        remaining_features = [c for c in df_after.columns if c != target_col]
+        if len(remaining_features) == 0:
+            st.error('No feature columns remain (dataset contains only the target). Add features or upload a dataset with predictors.')
+            return
+    except Exception:
+        pass
     st.divider()
 
     _section(5, 'Train & compare models', 'Models are trained with your selected options from the sidebar.')
@@ -727,6 +736,7 @@ def main():
         c4.metric('Test ratio', float(test_ratio))
     except Exception as e:
         st.error(f'Unable to split dataset: {e}')
+        st.info('Common fixes: reduce the number of classes, collect more rows per class, or adjust the test ratio so each class appears in both train and test.')
         return
 
     st.subheader('Training')

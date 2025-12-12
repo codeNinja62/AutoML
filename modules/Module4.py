@@ -132,8 +132,42 @@ def build_preprocessor(
 
 
 def split_train_test_stratified(df: pd.DataFrame, target_column: str, test_size: float = 0.2, random_state: int = 42):
+    if not isinstance(df, pd.DataFrame):
+        raise TypeError('df must be a pandas DataFrame')
+    if df.empty:
+        raise ValueError('Dataset is empty')
+    if target_column not in df.columns:
+        raise ValueError(f"Target column {target_column!r} not found")
+
     X = df.drop(columns=[target_column])
     y = df[target_column]
-    stratify = y if y.nunique() > 1 else None
+    if X.shape[1] == 0:
+        raise ValueError('No feature columns remain after removing the target column')
+
+    y_non_null = y.dropna()
+    n_classes = int(y_non_null.nunique())
+    if n_classes < 2:
+        raise ValueError('Target must have at least 2 classes for classification')
+
+    class_counts = y_non_null.value_counts()
+    min_class_count = int(class_counts.min()) if not class_counts.empty else 0
+    if min_class_count < 2:
+        raise ValueError('Each class must have at least 2 samples for a stratified split')
+
+    n_samples = int(len(y_non_null))
+    if isinstance(test_size, float):
+        if not (0.0 < test_size < 1.0):
+            raise ValueError('test_size must be between 0 and 1 when provided as a float')
+        test_n = int(np.ceil(test_size * n_samples))
+    else:
+        test_n = int(test_size)
+    train_n = n_samples - test_n
+    if test_n < n_classes or train_n < n_classes:
+        raise ValueError(
+            'Test/train split is too small for stratification: each split must contain at least one sample per class. '
+            'Increase dataset size or adjust the test ratio.'
+        )
+
+    stratify = y
     return train_test_split(X, y, test_size=test_size, random_state=random_state, stratify=stratify)
 

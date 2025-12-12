@@ -51,6 +51,37 @@ def train_and_optimize_models(
     class_weight_auto: bool = False,
     compute_cv_summary: bool = True,
 ):
+    # Defensive validation: avoid confusing downstream sklearn errors.
+    if X_train is None:
+        raise ValueError('X_train is required')
+    if y_train is None:
+        raise ValueError('y_train is required')
+
+    # Feature matrix must have at least one column.
+    try:
+        if hasattr(X_train, 'shape') and int(X_train.shape[1]) == 0:
+            raise ValueError('No feature columns available for training')
+    except Exception:
+        # If shape inspection fails, let sklearn raise the detailed error.
+        pass
+
+    y_series = pd.Series(y_train)
+    y_non_null = y_series.dropna()
+    if int(y_non_null.nunique()) < 2:
+        raise ValueError('Target must have at least 2 classes for classification training')
+
+    # If the user requests more folds than the smallest class can support, reduce CV.
+    try:
+        class_counts = y_non_null.value_counts()
+        min_class_count = int(class_counts.min()) if not class_counts.empty else 0
+        requested_cv = int(cv)
+        effective_cv = min(requested_cv, min_class_count)
+        if effective_cv < 2:
+            raise ValueError('Not enough samples per class for cross-validation (need at least 2 per class)')
+        cv = effective_cv
+    except Exception:
+        cv = int(cv)
+
     cw = 'balanced' if class_weight_auto else None
     models: dict[str, tuple[Any, dict[str, Any]]] = {
         'Logistic Regression': (LogisticRegression(max_iter=2000, random_state=random_state, class_weight=cw), {
