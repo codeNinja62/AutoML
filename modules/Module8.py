@@ -550,6 +550,10 @@ def _render_issue_detection_and_choices(df: pd.DataFrame, target_col: str) -> tu
     st.markdown('**Choose preprocessing options (applied only when you click “Apply preprocessing”)**')
 
     with st.form('preprocess_form', clear_on_submit=False):
+        st.caption(
+            'Effect summary: Outlier handling (cap/remove rows) and dropping all-missing feature columns happen immediately on Apply. '
+            'Imputation, scaling, and encoding are applied inside the training Pipeline (leakage-safe).'
+        )
         c1, c2 = st.columns(2)
 
         with c1:
@@ -630,7 +634,12 @@ def _render_issue_detection_and_choices(df: pd.DataFrame, target_col: str) -> tu
                 key='pp_outlier_action_ui',
             )
 
-        apply_now = st.form_submit_button('Apply preprocessing (with approval)')
+        st.divider()
+        c_apply_1, c_apply_2 = st.columns([3, 2])
+        with c_apply_1:
+            st.warning('Applying preprocessing will clear any existing training results.', icon=None)
+        with c_apply_2:
+            apply_now = st.form_submit_button('Apply preprocessing (with approval)')
 
     numeric_impute_strategy = (
         'median' if numeric_impute == 'median'
