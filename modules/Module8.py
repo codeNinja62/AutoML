@@ -56,6 +56,12 @@ class PreprocessChoices:
     outlier_method: str
 
 
+def _section(step: int, title: str, caption: str | None = None) -> None:
+    st.header(f"Step {step} — {title}")
+    if caption:
+        st.caption(caption)
+
+
 def _sanitize_column_name(name: str) -> str:
     # NFR-S2: sanitize user-provided text used as a column name
     cleaned = re.sub(r"[^0-9a-zA-Z_\- ]+", "", str(name)).strip()
@@ -87,42 +93,107 @@ def _health_check(df: pd.DataFrame) -> dict[str, Any]:
 
 def _render_basic_info(df: pd.DataFrame, target_col: str | None):
     rows, cols = get_shape(df)
-    st.subheader('Dataset Upload & Basic Info')
-    c1, c2, c3 = st.columns(3)
+    c1, c2, c3, c4 = st.columns(4)
     c1.metric('Rows', rows)
     c2.metric('Columns', cols)
-    c3.metric('Missing Cells', int(df.isna().sum().sum()))
+    c3.metric('Missing cells', int(df.isna().sum().sum()))
+    c4.metric('Duplicates', int(df.duplicated().sum()))
 
-    st.markdown('**Column Types**')
-    st.dataframe(get_column_types(df).astype(str), use_container_width=True)
+    with st.expander('Column types', expanded=False):
+        st.dataframe(get_column_types(df).astype(str), use_container_width=True)
 
-    st.markdown('**Summary Statistics (Numeric)**')
-    try:
-        st.dataframe(get_summary_statistics(df), use_container_width=True)
-    except Exception:
-        st.info('No numeric columns available for summary statistics.')
+    with st.expander('Summary statistics (numeric)', expanded=False):
+        try:
+            st.dataframe(get_summary_statistics(df), use_container_width=True)
+        except Exception:
+            st.info('No numeric columns available for summary statistics.')
 
     if target_col:
-        st.markdown('**Class Distribution**')
-        st.dataframe(get_class_distribution(df, target_col).rename('count'), use_container_width=True)
+        with st.expander('Class distribution', expanded=True):
+            st.dataframe(get_class_distribution(df, target_col).rename('count'), use_container_width=True)
 
 
 def _render_preview_tools(df: pd.DataFrame) -> pd.DataFrame:
-    st.subheader('Preview & Cleanup (before analysis)')
-    st.caption('These operations affect only the current session (in-memory).')
+    st.subheader('Preview & cleanup')
+    st.caption('Changes are applied in-memory for this session. Use “Reset session” to undo.')
 
-    st.markdown('**Preview (first 100 rows)**')
-    st.dataframe(df.head(100), use_container_width=True)
+    with st.expander('Preview (first 100 rows)', expanded=True):
+        st.dataframe(df.head(100), use_container_width=True)
 
-    if st.button('Shuffle preview (random 100 rows)'):
-        sample_n = min(100, len(df))
-        st.dataframe(df.sample(n=sample_n, random_state=int(time.time()) % 10_000), use_container_width=True)
+    c1, c2 = st.columns([1, 3])
+    with c1:
+        if st.button('Shuffle preview'):
+            sample_n = min(100, len(df))
+            st.dataframe(df.sample(n=sample_n, random_state=int(time.time()) % 10_000), use_container_width=True)
+    with c2:
+        st.caption('Shows a random sample (does not change the dataset).')
 
+    with st.expander('Cleanup actions', expanded=True):
+        st.caption('To avoid accidental changes, actions are applied only when you click the button.')
+
+        with st.form('drop_cols_form', clear_on_submit=False):
+            drop_cols = st.multiselect('Remove columns (e.g., IDs)', options=list(df.columns))
+            drop_apply = st.form_submit_button('Apply column removals')
+        if drop_apply and drop_cols:
+            df = df.drop(columns=drop_cols)
+            st.success(f'Removed {len(drop_cols)} column(s).')
+
+        st.divider()
+        st.markdown('**Feature creation (combine two numeric columns)**')
+        numeric_cols = df.select_dtypes(include='number').columns.tolist()
+        if len(numeric_cols) >= 2:
+            with st.form('feature_create_form', clear_on_submit=False):
+                fc1, fc2, fc3 = st.columns([3, 2, 3])
+                with fc1:
+                    col_a = st.selectbox('Column A', options=numeric_cols, key='feat_col_a')
+                with fc2:
+                    op = st.selectbox('Operation', options=['+', '-', '*', '/'], key='feat_op')
+                with fc3:
+                    col_b = st.selectbox('Column B', options=numeric_cols, key='feat_col_b')
+
+                default_name = _sanitize_column_name(f"{col_a}{op}{col_b}")
+                new_name = st.text_input('New feature name', value=default_name, key='feat_name')
+                add_feature = st.form_submit_button('Add feature')
+            if add_feature:
+                new_name = _sanitize_column_name(new_name)
+                if new_name in df.columns:
+                    st.error('Feature name already exists. Choose a different name.')
+                else:
+                    if op == '+':
+                        df[new_name] = df[col_a] + df[col_b]
+                    elif op == '-':
+                        df[new_name] = df[col_a] - df[col_b]
+                    elif op == '*':
+                        df[new_name] = df[col_a] * df[col_b]
+                    else:
+                        df[new_name] = df[col_a] / df[col_b].replace({0: np.nan})
+                    st.success(f'Added new feature: {new_name}')
+        else:
+            st.info('Need at least two numeric columns to create a combined feature.')
+
+        st.divider()
+        st.markdown('**Rename columns**')
+        rename_df = pd.DataFrame({'current': list(df.columns), 'new': list(df.columns)})
+        edited = st.data_editor(rename_df, num_rows='fixed', use_container_width=True)
+        with st.form('rename_cols_form', clear_on_submit=False):
+            rename_apply = st.form_submit_button('Apply column renames')
+        if rename_apply:
+            mapping = {}
+            for _, row in edited.iterrows():
+                cur = row['current']
+                new = _sanitize_column_name(row['new'])
+                if cur != new:
+                    mapping[cur] = new
+            if mapping:
+                df = df.rename(columns=mapping)
+                st.success('Renamed columns applied.')
+            else:
+                st.info('No column renames detected.')
     drop_cols = st.multiselect('Remove columns (e.g., IDs)', options=list(df.columns))
     if drop_cols:
         df = df.drop(columns=drop_cols)
 
-    st.markdown('**Create a new feature (combine two numeric columns)**')
+    st.markdown('**Feature creation (combine two numeric columns)**')
     numeric_cols = df.select_dtypes(include='number').columns.tolist()
     if len(numeric_cols) >= 2:
         fc1, fc2, fc3 = st.columns([3, 2, 3])
@@ -178,50 +249,53 @@ def _render_eda_summary(df: pd.DataFrame, target_col: str):
     total_missing = int(df.isna().sum().sum())
     out_iqr = issues.get('outliers_iqr', {})
     out_z = issues.get('outliers_zscore', {})
-    st.markdown('**EDA Summary (main problems)**')
-    st.write({
-        'missing_value_columns': missing_cols,
-        'total_missing_cells': total_missing,
-        'iqr_outlier_columns': len(out_iqr) if isinstance(out_iqr, dict) else 0,
-        'zscore_outlier_columns': len(out_z) if isinstance(out_z, dict) else 0,
-        'high_cardinality_features': len(issues.get('high_cardinality', [])) if isinstance(issues.get('high_cardinality', []), list) else 0,
-        'constant_or_near_constant_features': len(issues.get('constant_features', [])) if isinstance(issues.get('constant_features', []), list) else 0,
-        'class_imbalance_detected': 'class_imbalance' in issues,
-    })
+    st.markdown('**EDA summary (main problems)**')
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric('Columns w/ missing', missing_cols)
+    c2.metric('Total missing cells', total_missing)
+    c3.metric('Outlier cols (IQR)', len(out_iqr) if isinstance(out_iqr, dict) else 0)
+    c4.metric('High-cardinality', len(issues.get('high_cardinality', [])) if isinstance(issues.get('high_cardinality', []), list) else 0)
+
+    c5, c6, c7 = st.columns(3)
+    c5.metric('Outlier cols (Z-score)', len(out_z) if isinstance(out_z, dict) else 0)
+    c6.metric('Constant/near-constant', len(issues.get('constant_features', [])) if isinstance(issues.get('constant_features', []), list) else 0)
+    c7.metric('Class imbalance', 'Yes' if 'class_imbalance' in issues else 'No')
 
 
 def _render_eda(df: pd.DataFrame):
     st.subheader('Automated EDA')
 
+    st.caption('Charts are generated automatically; use expanders to focus on what you need.')
+
     missing_df = missing_value_analysis(df)
-    st.markdown('**Missing Value Analysis**')
-    st.pyplot(plot_missing_values(missing_df), clear_figure=True)
-    if not missing_df.empty:
-        st.dataframe(missing_df, use_container_width=True)
+    with st.expander('Missing value analysis', expanded=True):
+        st.pyplot(plot_missing_values(missing_df), clear_figure=True)
+        if not missing_df.empty:
+            st.dataframe(missing_df, use_container_width=True)
 
     corr_df = correlation_matrix(df)
-    st.markdown('**Correlation Matrix**')
-    st.pyplot(plot_correlation_heatmap(corr_df), clear_figure=True)
+    with st.expander('Correlation matrix (numeric)', expanded=False):
+        st.pyplot(plot_correlation_heatmap(corr_df), clear_figure=True)
 
     numeric_cols = df.select_dtypes(include='number').columns.tolist()
     cat_cols = [c for c in df.columns if c not in numeric_cols]
 
-    st.markdown('**Distribution Plots**')
-    with st.expander('Numeric feature distribution'):
+    st.markdown('**Distributions**')
+    with st.expander('Numeric feature distribution', expanded=False):
         if numeric_cols:
             num_choice = st.selectbox('Select numeric feature', options=numeric_cols)
             st.pyplot(plot_numerical_distribution(df, num_choice), clear_figure=True)
         else:
             st.info('No numeric features found.')
 
-    with st.expander('Categorical feature bar plot'):
+    with st.expander('Categorical feature bar plot', expanded=False):
         if cat_cols:
             cat_choice = st.selectbox('Select categorical feature', options=cat_cols)
             st.pyplot(plot_categorical_distribution(df, cat_choice), clear_figure=True)
         else:
             st.info('No categorical features found.')
 
-    with st.expander('Outlier visualization (boxplot)'):
+    with st.expander('Outlier visualization (boxplot)', expanded=False):
         if numeric_cols:
             out_choice = st.selectbox('Select numeric feature for boxplot', options=numeric_cols)
             st.pyplot(plot_outlier_boxplot(df, out_choice), clear_figure=True)
@@ -260,28 +334,93 @@ def _detect_issues(df: pd.DataFrame, target_col: str) -> dict[str, Any]:
 
 
 def _render_issue_detection_and_choices(df: pd.DataFrame, target_col: str) -> tuple[pd.DataFrame, PreprocessChoices, dict[str, Any]]:
-    st.subheader('Issue Detection & User Approval')
+    st.subheader('Issue detection & approval')
     issues = _detect_issues(df, target_col)
 
     if not issues:
         st.success('No major data quality issues detected with default rules.')
     else:
+        issue_rows = []
         for k, v in issues.items():
-            st.warning(f"Detected issue: {k}")
-            st.write(v)
+            if isinstance(v, dict):
+                issue_rows.append({'issue': k, 'count': len(v), 'notes': 'dictionary details'})
+            elif isinstance(v, list):
+                issue_rows.append({'issue': k, 'count': len(v), 'notes': 'feature list'})
+            else:
+                issue_rows.append({'issue': k, 'count': None, 'notes': str(v)})
+        st.dataframe(pd.DataFrame(issue_rows), use_container_width=True)
 
-        st.markdown('**Suggested fixes (examples)**')
-        if 'missing_values' in issues:
-            st.write('- Consider imputing missing numeric values with median and categorical with most frequent.')
-        if 'outliers_iqr' in issues or 'outliers_zscore' in issues:
-            st.write('- Consider capping outliers (IQR) or removing extreme rows if justified by domain knowledge.')
-        if 'class_imbalance' in issues:
-            st.write('- Consider using stratified split (enabled) and evaluating with F1-score; optionally use class weights in models later.')
-        if 'high_cardinality' in issues:
-            st.write('- Consider One-Hot encoding with rare-category grouping, or Ordinal encoding if categories are ordered.')
-        if 'constant_features' in issues:
-            st.write('- Consider dropping constant/near-constant features before training.')
+        with st.expander('Issue details', expanded=False):
+            for k, v in issues.items():
+                st.warning(f"Detected: {k}")
+                st.write(v)
 
+        with st.expander('Suggested fixes (examples)', expanded=False):
+            if 'missing_values' in issues:
+                st.write('- Impute missing numeric values with median; categorical with most frequent.')
+            if 'outliers_iqr' in issues or 'outliers_zscore' in issues:
+                st.write('- Cap outliers (IQR) or remove extreme rows if justified by domain knowledge.')
+            if 'class_imbalance' in issues:
+                st.write('- Evaluate with F1-score; stratified split is enabled by default.')
+            if 'high_cardinality' in issues:
+                st.write('- Prefer One-Hot encoding when feasible; use Ordinal only when categories are ordered.')
+            if 'constant_features' in issues:
+                st.write('- Drop constant/near-constant features before training.')
+
+    st.markdown('**Choose preprocessing options (applied only when you click “Apply preprocessing”)**')
+
+    with st.form('preprocess_form', clear_on_submit=False):
+        c1, c2 = st.columns(2)
+
+        with c1:
+            numeric_impute = st.selectbox(
+                'Missing values (numeric):',
+                options=['mean', 'median', 'mode', 'constant'],
+                index=1,
+                help='How to impute missing values in numeric columns.',
+            )
+            numeric_fill_value = None
+            if numeric_impute == 'constant':
+                numeric_fill_value = st.number_input('Numeric constant value', value=0.0, step=1.0)
+
+            scaling = st.selectbox(
+                'Scaling:',
+                options=['standard', 'minmax', 'none'],
+                index=0,
+                help='StandardScaler or MinMaxScaler (or no scaling).',
+            )
+            outlier_method = st.selectbox(
+                'Outlier detection method:',
+                options=['iqr', 'zscore'],
+                index=0,
+                help='Used to decide which rows/values are considered outliers.',
+            )
+
+        with c2:
+            categorical_impute = st.selectbox(
+                'Missing values (categorical):',
+                options=['most_frequent', 'constant'],
+                index=0,
+                help='How to impute missing values in categorical columns.',
+            )
+            categorical_fill_value = None
+            if categorical_impute == 'constant':
+                categorical_fill_value = st.text_input('Categorical constant value', value='missing')
+
+            encoding = st.selectbox(
+                'Categorical encoding:',
+                options=['onehot', 'ordinal', 'auto'],
+                index=0,
+                help='One-Hot Encoding or Ordinal Encoding.',
+            )
+            outlier_action = st.selectbox(
+                'Outlier handling:',
+                options=['no_action', 'cap_iqr', 'remove_rows'],
+                index=0,
+                help='Cap using IQR bounds, remove outlier rows, or take no action.',
+            )
+
+        apply_now = st.form_submit_button('Apply preprocessing (with approval)')
     st.markdown('**Choose preprocessing options (nothing is applied until you confirm)**')
     c1, c2 = st.columns(2)
 
@@ -378,12 +517,15 @@ def _render_issue_detection_and_choices(df: pd.DataFrame, target_col: str) -> tu
                     mask = mask | (before_df[col] < lb) | (before_df[col] > ub)
             before_df = before_df.loc[~mask].copy()
 
-    st.markdown('**Before vs After (preview)**')
-    st.write('Before:')
-    st.dataframe(df.head(10), use_container_width=True)
-    st.write('After:')
-    st.dataframe(before_df.head(10), use_container_width=True)
-    st.success('Preprocessing choices stored for training. (Transformations are applied via a sklearn Pipeline during training.)')
+    with st.expander('Before vs after (preview)', expanded=True):
+        c1, c2 = st.columns(2)
+        with c1:
+            st.write('Before')
+            st.dataframe(df.head(10), use_container_width=True)
+        with c2:
+            st.write('After')
+            st.dataframe(before_df.head(10), use_container_width=True)
+    st.success('Preprocessing choices stored for training. (Imputation/encoding/scaling are applied via a sklearn Pipeline during training.)')
 
     return before_df, choices, issues
 
@@ -402,7 +544,7 @@ def _metric_to_sklearn_scoring(metric: str, is_binary: bool) -> str:
 def main():
     st.set_page_config(page_title='AutoML Classification (CS-245)', layout='wide')
     st.title('AutoML System for Classification')
-    st.caption('Minimum-spec implementation: upload → EDA → user-approved preprocessing → train/tune → compare → report')
+    st.caption('Upload → understand → approve preprocessing → train/tune → compare → export')
 
     with st.sidebar:
         st.header('Configuration')
@@ -428,17 +570,18 @@ def main():
         st.subheader('Progress')
         has_data = 'uploaded_bytes' in st.session_state
         has_training = 'evaluation_results' in st.session_state
-        st.write('1) Dataset', '✅' if has_data else '⬜')
-        st.write('2) EDA', '✅' if has_data else '⬜')
-        st.write('3) Preprocessing approval', '✅' if 'preprocess_choices' in st.session_state else '⬜')
-        st.write('4) Training complete', '✅' if has_training else '⬜')
+        st.write('1) Dataset:', 'Done' if has_data else 'Not yet')
+        st.write('2) EDA:', 'Done' if has_data else 'Not yet')
+        st.write('3) Preprocessing approval:', 'Done' if 'preprocess_choices' in st.session_state else 'Not yet')
+        st.write('4) Training complete:', 'Done' if has_training else 'Not yet')
 
-        if st.button('Reset session (undo preprocessing/training)'):
-            for k in ['raw_df', 'trained_models', 'evaluation_results', 'preprocess_choices', 'issues']:
+        if st.button('Reset session (undo changes)'):
+            for k in ['raw_df', 'working_df', 'working_df_sig', 'trained_models', 'evaluation_results', 'preprocess_choices', 'issues']:
                 if k in st.session_state:
                     del st.session_state[k]
             st.rerun()
 
+    _section(1, 'Upload dataset', 'Supported format: CSV. Recommended: header row + clean column names.')
     uploaded = st.file_uploader('Upload a CSV file', type=['csv'])
     if uploaded is None and 'uploaded_bytes' not in st.session_state:
         st.info('Upload a CSV to start.')
@@ -461,8 +604,14 @@ def main():
         st.error(f'File Read Error: {e}')
         return
 
-    # Persist base dataset across reruns
-    st.session_state['raw_df'] = df
+    # Persist dataset across reruns and keep user cleanup changes stable.
+    sig = (st.session_state.get('uploaded_name'), len(st.session_state.get('uploaded_bytes', b'')))
+    if st.session_state.get('working_df_sig') != sig:
+        st.session_state['raw_df'] = df
+        st.session_state['working_df'] = df
+        st.session_state['working_df_sig'] = sig
+
+    df = st.session_state.get('working_df', df)
 
     health = _health_check(df)
     if health['unnamed_columns']:
@@ -472,48 +621,42 @@ def main():
     if health['non_ascii_columns']:
         st.warning(f"Columns with non-ASCII characters: {health['non_ascii_columns']}")
 
+    _render_basic_info(df, target_col=None)
+
+    st.divider()
+    _section(2, 'Prepare dataset', 'Optional cleanup before analysis/training.')
     df = _render_preview_tools(df)
+    st.session_state['working_df'] = df
 
-    target_col = st.selectbox('Select target column (classification label)', options=list(df.columns))
+    target_col = st.selectbox('Select target column (classification label)', options=list(df.columns), key='target_col')
 
-    _render_basic_info(df, target_col)
     st.divider()
-    _render_eda(df)
+    _section(3, 'Understand dataset (EDA)', 'Automated charts and a one-page summary of key issues.')
     _render_eda_summary(df, target_col)
+    _render_eda(df)
+
     st.divider()
+    _section(4, 'Approve preprocessing', 'Review detected issues and confirm preprocessing decisions.')
 
     df_after, choices, issues = _render_issue_detection_and_choices(df, target_col)
-    if issues:
-        try:
-            issue_rows = []
-            for k, v in issues.items():
-                if isinstance(v, dict):
-                    issue_rows.append({'issue': k, 'details': f'{len(v)} items'})
-                elif isinstance(v, list):
-                    issue_rows.append({'issue': k, 'details': f'{len(v)} features'})
-                else:
-                    issue_rows.append({'issue': k, 'details': str(v)})
-            st.markdown('**Issue Summary**')
-            st.dataframe(pd.DataFrame(issue_rows), use_container_width=True)
-        except Exception:
-            pass
     st.divider()
 
-    st.subheader('Train/Test Split Summary')
+    _section(5, 'Train & compare models', 'Models are trained with your selected options from the sidebar.')
+    st.subheader('Train/test split')
     try:
         X_train, X_test, y_train, y_test = split_train_test_stratified(df_after, target_col, test_size=float(test_ratio))
-        st.write({
-            'train_samples': int(len(X_train)),
-            'test_samples': int(len(X_test)),
-            'train_ratio': float(1 - test_ratio),
-            'test_ratio': float(test_ratio),
-        })
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric('Train samples', int(len(X_train)))
+        c2.metric('Test samples', int(len(X_test)))
+        c3.metric('Train ratio', float(1 - test_ratio))
+        c4.metric('Test ratio', float(test_ratio))
     except Exception as e:
         st.error(f'Unable to split dataset: {e}')
         return
 
-    st.subheader('Model Training & Hyperparameter Optimization')
-    run_training = st.button('Train models')
+    st.subheader('Training')
+    st.caption('Tip: start with fewer models for faster iteration, then expand the list once the dataset looks good.')
+    run_training = st.button('Train models', type='primary')
     if not run_training and 'evaluation_results' not in st.session_state:
         st.info('Click “Train models” to run training and evaluation.')
         return
@@ -578,13 +721,20 @@ def main():
     best_name = valid_ranked.iloc[0]['model'] if not valid_ranked.empty else None
 
     if best_name is not None:
+        top_row = valid_ranked.iloc[0]
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric('Best model', str(best_name))
+        c2.metric(f'Best {primary_metric}', float(top_row[sort_metric]) if pd.notna(top_row[sort_metric]) else None)
+        c3.metric('ROC-AUC', float(top_row.get('roc_auc')) if pd.notna(top_row.get('roc_auc')) else None)
+        c4.metric('Train time (s)', float(top_row.get('training_time')) if pd.notna(top_row.get('training_time')) else None)
+
         display_df = comparison_df.reset_index(drop=True).copy()
         display_df['best'] = display_df['model'].apply(lambda m: '⭐' if m == best_name else '')
-        st.dataframe(display_df, use_container_width=True)
+        st.dataframe(display_df, use_container_width=True, height=260)
     else:
-        st.dataframe(comparison_df, use_container_width=True)
-    st.markdown(f'**Ranking by {sort_metric}**')
-    st.dataframe(ranked, use_container_width=True)
+        st.dataframe(comparison_df, use_container_width=True, height=260)
+    with st.expander(f'Ranking by {sort_metric}', expanded=False):
+        st.dataframe(ranked, use_container_width=True)
 
     st.pyplot(plot_metric_bars(comparison_df.reset_index(drop=True), sort_metric), clear_figure=True)
 
@@ -596,89 +746,85 @@ def main():
     )
 
     # Show confusion matrices
-    st.subheader('Confusion Matrices')
+    st.subheader('Confusion matrices')
     classes_sorted = sorted(pd.unique(y_test))
     for model_name, v in evals.items():
         if v.get('confusion_matrix') is None:
             continue
-        st.markdown(f'**{model_name}**')
-        cm = np.array(v['confusion_matrix'])
+        with st.expander(f'{model_name}', expanded=(model_name == best_name)):
+            cm = np.array(v['confusion_matrix'])
 
-        import matplotlib.pyplot as plt
-        import seaborn as sns
+            import matplotlib.pyplot as plt
+            import seaborn as sns
 
-        # Binary: show a simple 2x2 quadrant matrix with explicit labels
-        if cm.shape == (2, 2):
-            tn, fp, fn, tp = cm.ravel()
-            annot = np.array([
-                [f"TN\n{tn}", f"FP\n{fp}"],
-                [f"FN\n{fn}", f"TP\n{tp}"],
-            ])
-            fig, ax = plt.subplots(figsize=(4.5, 3.5))
-            sns.heatmap(
-                cm,
-                annot=annot,
-                fmt='',
-                cmap='Blues',
-                cbar=False,
-                linewidths=1,
-                linecolor='white',
-                square=True,
-                ax=ax,
-            )
-            ax.set_title('Confusion Matrix (2×2)')
-            ax.set_xlabel('Predicted')
-            ax.set_ylabel('Actual')
-            # Use actual label values if they are simple, otherwise fall back
-            tick_labels = [str(classes_sorted[0]), str(classes_sorted[1])] if len(classes_sorted) == 2 else ['0', '1']
-            ax.set_xticklabels(tick_labels)
-            ax.set_yticklabels(tick_labels, rotation=0)
-            fig.tight_layout()
-            st.pyplot(fig, clear_figure=True)
-        else:
-            # Multiclass: keep readable heatmap with labels
-            fig, ax = plt.subplots(figsize=(6, 4))
-            n = cm.shape[0]
-            # For many classes, forcing every tick label becomes unreadable and can crash
-            # if matplotlib/seaborn auto-reduces ticks.
-            if n <= 10 and len(classes_sorted) == n:
-                labels = [str(c) for c in classes_sorted]
+            # Binary: show a simple 2x2 quadrant matrix with explicit labels
+            if cm.shape == (2, 2):
+                tn, fp, fn, tp = cm.ravel()
+                annot = np.array([
+                    [f"TN\n{tn}", f"FP\n{fp}"],
+                    [f"FN\n{fn}", f"TP\n{tp}"],
+                ])
+                fig, ax = plt.subplots(figsize=(4.5, 3.5))
                 sns.heatmap(
                     cm,
-                    annot=True,
-                    fmt='d',
+                    annot=annot,
+                    fmt='',
                     cmap='Blues',
+                    cbar=False,
+                    linewidths=1,
+                    linecolor='white',
+                    square=True,
                     ax=ax,
-                    xticklabels=labels,
-                    yticklabels=labels,
                 )
-                ax.tick_params(axis='x', rotation=45)
-            elif n <= 25 and len(classes_sorted) == n:
-                labels = [str(c) for c in classes_sorted]
-                sns.heatmap(
-                    cm,
-                    annot=False,
-                    cmap='Blues',
-                    ax=ax,
-                    xticklabels=labels,
-                    yticklabels=labels,
-                )
-                ax.tick_params(axis='x', rotation=45)
+                ax.set_title('Confusion Matrix (2×2)')
+                ax.set_xlabel('Predicted')
+                ax.set_ylabel('Actual')
+                tick_labels = [str(classes_sorted[0]), str(classes_sorted[1])] if len(classes_sorted) == 2 else ['0', '1']
+                ax.set_xticklabels(tick_labels)
+                ax.set_yticklabels(tick_labels, rotation=0)
+                fig.tight_layout()
+                st.pyplot(fig, clear_figure=True)
             else:
-                sns.heatmap(cm, annot=False, fmt='d', cmap='Blues', ax=ax)
-                ax.set_xticklabels([])
-                ax.set_yticklabels([])
-                st.caption(f'Confusion matrix has {n} classes; tick labels hidden for readability.')
-            ax.set_title('Confusion Matrix')
-            ax.set_xlabel('Predicted')
-            ax.set_ylabel('Actual')
-            fig.tight_layout()
-            st.pyplot(fig, clear_figure=True)
+                fig, ax = plt.subplots(figsize=(6, 4))
+                n = cm.shape[0]
+                if n <= 10 and len(classes_sorted) == n:
+                    labels = [str(c) for c in classes_sorted]
+                    sns.heatmap(
+                        cm,
+                        annot=True,
+                        fmt='d',
+                        cmap='Blues',
+                        ax=ax,
+                        xticklabels=labels,
+                        yticklabels=labels,
+                    )
+                    ax.tick_params(axis='x', rotation=45)
+                elif n <= 25 and len(classes_sorted) == n:
+                    labels = [str(c) for c in classes_sorted]
+                    sns.heatmap(
+                        cm,
+                        annot=False,
+                        cmap='Blues',
+                        ax=ax,
+                        xticklabels=labels,
+                        yticklabels=labels,
+                    )
+                    ax.tick_params(axis='x', rotation=45)
+                else:
+                    sns.heatmap(cm, annot=False, fmt='d', cmap='Blues', ax=ax)
+                    ax.set_xticklabels([])
+                    ax.set_yticklabels([])
+                    st.caption(f'Confusion matrix has {n} classes; tick labels hidden for readability.')
+                ax.set_title('Confusion Matrix')
+                ax.set_xlabel('Predicted')
+                ax.set_ylabel('Actual')
+                fig.tight_layout()
+                st.pyplot(fig, clear_figure=True)
 
     # Best model + downloads
     # ROC curve (binary only)
     if is_binary:
-        st.subheader('ROC Curves (Binary Classification)')
+        st.subheader('ROC curves (binary classification)')
         import matplotlib.pyplot as plt
 
         fig, ax = plt.subplots(figsize=(6, 4))
@@ -707,7 +853,9 @@ def main():
         else:
             st.info('No ROC curves available (models may not support probabilities).')
 
-    st.subheader('Auto-Generated Final Report')
+    st.divider()
+    _section(6, 'Export & report', 'Download results, the report, and the best trained pipeline.')
+    st.subheader('Auto-generated final report')
     if best_name:
         st.success(f'Best model by {sort_metric}: {best_name}')
     else:
