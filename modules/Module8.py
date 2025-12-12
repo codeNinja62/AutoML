@@ -405,6 +405,15 @@ def _render_issue_detection_and_choices(df: pd.DataFrame, target_col: str) -> tu
     if not apply_now:
         return df, choices, issues
 
+    # Preprocessing changes the dataset; clear any previously trained artifacts to avoid stale results.
+    try:
+        for k in ['trained_models', 'evaluation_results', 'preprocess_choices']:
+            if k in st.session_state:
+                del st.session_state[k]
+        st.info('Cleared previous training results (dataset changed after preprocessing).')
+    except Exception:
+        pass
+
     before_df = df.copy()
 
     # Outlier handling (simple, dataset-level) BEFORE split.
