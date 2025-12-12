@@ -482,6 +482,18 @@ def _render_issue_detection_and_choices(df: pd.DataFrame, target_col: str) -> tu
                     mask = mask | (before_df[col] < lb) | (before_df[col] > ub)
             before_df = before_df.loc[~mask].copy()
 
+    # Auto-clean: drop feature columns that are entirely missing.
+    # (These break many sklearn preprocessors and carry no signal.)
+    try:
+        all_missing_cols = get_all_missing_columns(before_df, exclude=[target_col])
+        if all_missing_cols:
+            before_df = before_df.drop(columns=all_missing_cols)
+            preview = ', '.join([str(c) for c in all_missing_cols[:8]])
+            more = '' if len(all_missing_cols) <= 8 else f' (+{len(all_missing_cols) - 8} more)'
+            st.info(f'Automatically dropped {len(all_missing_cols)} all-missing column(s): {preview}{more}.')
+    except Exception:
+        pass
+
     with st.expander('Before vs after (preview)', expanded=True):
         c1, c2 = st.columns(2)
         with c1:
