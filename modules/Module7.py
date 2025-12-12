@@ -11,12 +11,13 @@
 
 """Module 7: Auto-Generated Final Report.
 
-Minimum-spec implementation focuses on generating a downloadable Markdown report.
+Implements Markdown and PDF exports.
 """
 
 from __future__ import annotations
 
 import io
+import json
 from typing import Any
 
 import pandas as pd
@@ -61,9 +62,12 @@ def _to_markdown_block(value: Any) -> str:
         return ""
     if isinstance(value, pd.DataFrame):
         return value.to_markdown(index=False)
-    if isinstance(value, dict):
-        lines = [f"- **{k}**: {v}" for k, v in value.items()]
-        return "\n".join(lines)
+    # For nested structures, a JSON code block is the most robust.
+    if isinstance(value, (dict, list, tuple)):
+        try:
+            return "```json\n" + json.dumps(value, indent=2, default=str) + "\n```"
+        except Exception:
+            return "```\n" + str(value) + "\n```"
     return str(value)
 
 
@@ -81,3 +85,51 @@ def export_report_as_markdown_bytes(report_sections: dict[str, Any], title: str 
     buffer = io.BytesIO()
     buffer.write(md.encode("utf-8"))
     return buffer.getvalue()
+
+
+def export_report_as_pdf_bytes(report_sections: dict[str, Any], title: str = "AutoML Classification Report") -> bytes:
+    """Export report as PDF bytes.
+
+    Uses fpdf2 (pure Python). If unavailable, raises RuntimeError with install hint.
+    """
+
+    try:
+        from fpdf import FPDF  # type: ignore
+    except Exception as e:
+        raise RuntimeError('PDF export requires fpdf2. Install it via `pip install fpdf2`.') from e
+
+    md = build_markdown_report(report_sections, title=title)
+
+    pdf = FPDF(orientation='P', unit='mm', format='A4')
+    pdf.set_auto_page_break(auto=True, margin=12)
+    pdf.add_page()
+    # Built-in font; avoids external font dependencies.
+    pdf.set_font('Helvetica', size=10)
+
+    effective_width = float(pdf.w - pdf.l_margin - pdf.r_margin)
+
+    def _write_line(text: str) -> None:
+        # fpdf2 can throw if it cannot render even a single character in the remaining width.
+        pdf.set_x(pdf.l_margin)
+        if text == "":
+            pdf.ln(5)
+            return
+        try:
+            pdf.multi_cell(effective_width, 5, text)
+        except Exception:
+            # Fallback: chunk long unbreakable lines.
+            chunk_size = 80
+            for i in range(0, len(text), chunk_size):
+                pdf.set_x(pdf.l_margin)
+                pdf.multi_cell(effective_width, 5, text[i:i + chunk_size])
+
+    # Render markdown as plain text. (Minimum spec is exportability, not rich PDF formatting.)
+    for line in md.splitlines():
+        # fpdf core fonts are latin-1; replace unsupported chars.
+        safe_line = line.encode('latin-1', errors='replace').decode('latin-1')
+        _write_line(safe_line)
+
+    out = pdf.output()
+    if isinstance(out, (bytes, bytearray)):
+        return bytes(out)
+    return str(out).encode('latin-1')

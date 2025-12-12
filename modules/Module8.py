@@ -57,7 +57,7 @@ from project.modules.Module3 import (
 from project.modules.Module4 import apply_outlier_handling, build_preprocessor, split_train_test_stratified
 from project.modules.Module5 import evaluate_models, train_and_optimize_models
 from project.modules.Module6 import plot_metric_bars, rank_algorithms, show_comparison_table
-from project.modules.Module7 import generate_dataset_overview, export_report_as_markdown_bytes
+from project.modules.Module7 import generate_dataset_overview, export_report_as_markdown_bytes, export_report_as_pdf_bytes
 
 
 @dataclass
@@ -1073,6 +1073,17 @@ def main():
         file_name='automl_report.md',
         mime='text/markdown',
     )
+
+    try:
+        st.download_button(
+            'Download report (PDF)',
+            data=export_report_as_pdf_bytes(report_sections, title='CS-245 AutoML Report'),
+            file_name='automl_report.pdf',
+            mime='application/pdf',
+        )
+    except Exception:
+        # If the PDF backend isn't installed, keep the UI working.
+        st.info('PDF export is unavailable (install fpdf2 to enable it).')
 
     if best_name and st.session_state.get('trained_models', {}).get(best_name, {}).get('model') is not None:
         # Export winning model pipeline as a single object (already includes preprocessing)
