@@ -97,6 +97,39 @@ def _estimate_workload_text(search_type: str, cv: int, n_models: int) -> str:
     return base
 
 
+def _split_feasibility_hint(df: pd.DataFrame, target_col: str, test_ratio: float) -> dict[str, Any]:
+    """Return simple diagnostics + a recommended test ratio when stratified split fails."""
+
+    hint: dict[str, Any] = {
+        'n_samples': int(len(df)),
+        'n_classes': None,
+        'min_class_count': None,
+        'recommended_test_ratio': None,
+    }
+    try:
+        y = pd.Series(df[target_col]).dropna()
+        n_samples = int(len(y))
+        n_classes = int(y.nunique())
+        hint['n_samples'] = n_samples
+        hint['n_classes'] = n_classes
+        if n_classes >= 2:
+            class_counts = y.value_counts()
+            hint['min_class_count'] = int(class_counts.min()) if not class_counts.empty else None
+
+        # For stratification, each split should contain at least one sample per class.
+        # Our split helper uses ceil(test_ratio * n_samples) and enforces test_n >= n_classes and train_n >= n_classes.
+        if n_samples > 0 and n_classes and n_classes > 0:
+            min_test_n = n_classes
+            max_test_n = max(n_classes, n_samples - n_classes)
+            # Choose the smallest feasible test_n, then convert to ratio.
+            feasible_test_n = min_test_n if min_test_n <= (n_samples - n_classes) else None
+            if feasible_test_n is not None and n_samples:
+                hint['recommended_test_ratio'] = float(np.clip(feasible_test_n / n_samples, 0.1, 0.5))
+    except Exception:
+        pass
+    return hint
+
+
 def _section(step: int, title: str, caption: str | None = None) -> None:
     st.header(f"Step {step} — {title}")
     if caption:
@@ -921,8 +954,38 @@ def main():
         c3.metric('Train ratio', float(1 - test_ratio))
         c4.metric('Test ratio', float(test_ratio))
     except Exception as e:
-        st.error(f'Unable to split dataset: {e}')
-        st.info('Common fixes: reduce the number of classes, collect more rows per class, or adjust the test ratio so each class appears in both train and test.')
+        st.error(f'Unable to split dataset (stratified): {e}')
+        hint = _split_feasibility_hint(df_after, target_col, float(test_ratio))
+        with st.expander('Fix this (recommended actions)', expanded=True):
+            n_samples = hint.get('n_samples')
+            n_classes = hint.get('n_classes')
+            min_class = hint.get('min_class_count')
+            st.write(f"Samples (non-null target): {n_samples}")
+            st.write(f"Classes: {n_classes}")
+            st.write(f"Smallest class size: {min_class}")
+
+            rec = hint.get('recommended_test_ratio')
+            if rec is not None:
+                st.caption(f"Suggested test ratio (feasible minimum): {rec:.2f}")
+                c1, c2 = st.columns(2)
+                with c1:
+                    if st.button(f'Set test ratio to {rec:.2f} and retry'):
+                        cfg2 = dict(st.session_state.get('train_cfg', {}))
+                        cfg2['test_ratio'] = float(rec)
+                        st.session_state['train_cfg'] = cfg2
+                        st.rerun()
+                with c2:
+                    if st.button('Set CV folds to 2 and retry'):
+                        cfg2 = dict(st.session_state.get('train_cfg', {}))
+                        cfg2['cv'] = 2
+                        st.session_state['train_cfg'] = cfg2
+                        st.rerun()
+            else:
+                st.info('Try increasing dataset size or reducing number of classes (merge rare classes) so stratification is possible.')
+
+            if st.button('Train baseline only (Most Frequent)'):
+                st.session_state['selected_models'] = ['Rule-based (Most Frequent)']
+                st.rerun()
         return
 
     st.subheader('Training')
@@ -1018,6 +1081,38 @@ def main():
         st.session_state['best_model_name'] = best_name
     except Exception:
         pass
+
+    # Actionable diagnostics if training produced no successful models.
+    if best_name is None:
+        st.error('No models successfully trained. Review errors below and try a simpler configuration.')
+        with st.expander('Fix this (recommended actions)', expanded=True):
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                if st.button('Use baseline only'):
+                    st.session_state['selected_models'] = ['Rule-based (Most Frequent)']
+                    # Clear results so the user is prompted to retrain.
+                    for k in ['trained_models', 'evaluation_results', 'best_model_name', 'last_training_ran_at']:
+                        if k in st.session_state:
+                            del st.session_state[k]
+                    st.rerun()
+            with c2:
+                if st.button('Switch search to grid'):
+                    cfg2 = dict(st.session_state.get('train_cfg', {}))
+                    cfg2['search_type'] = 'grid'
+                    st.session_state['train_cfg'] = cfg2
+                    for k in ['trained_models', 'evaluation_results', 'best_model_name', 'last_training_ran_at']:
+                        if k in st.session_state:
+                            del st.session_state[k]
+                    st.rerun()
+            with c3:
+                if st.button('Set CV folds to 2'):
+                    cfg2 = dict(st.session_state.get('train_cfg', {}))
+                    cfg2['cv'] = 2
+                    st.session_state['train_cfg'] = cfg2
+                    for k in ['trained_models', 'evaluation_results', 'best_model_name', 'last_training_ran_at']:
+                        if k in st.session_state:
+                            del st.session_state[k]
+                    st.rerun()
 
     if best_name is not None:
         top_row = valid_ranked.iloc[0]
