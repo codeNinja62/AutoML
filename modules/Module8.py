@@ -20,7 +20,16 @@ from sklearn.metrics import roc_curve
 
 from sklearn.pipeline import Pipeline
 
-from project.modules.Module1 import get_class_distribution, get_column_types, get_shape, get_summary_statistics
+from project.modules.Module1 import (
+    get_cardinality_buckets,
+    get_class_distribution,
+    get_column_types,
+    get_dataset_schema,
+    get_shape,
+    get_summary_statistics,
+    infer_target_candidates,
+    validate_target_column,
+)
 from project.modules.Module2 import (
     correlation_matrix,
     missing_value_analysis,
@@ -645,7 +654,45 @@ def main():
     df = _render_preview_tools(df)
     st.session_state['working_df'] = df
 
-    target_col = st.selectbox('Select target column (classification label)', options=list(df.columns), key='target_col')
+    with st.expander('Dataset schema & cardinality', expanded=False):
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown('**Schema**')
+            st.dataframe(get_dataset_schema(df), use_container_width=True, height=260)
+        with c2:
+            st.markdown('**Cardinality buckets**')
+            st.dataframe(get_cardinality_buckets(df), use_container_width=True, height=260)
+
+    # Target selection: suggest likely candidates but keep user in control.
+    cols = list(df.columns)
+    col_by_str = {str(c): c for c in cols}
+    suggested = infer_target_candidates(df)
+    default_target = None
+    for s in suggested:
+        if s in col_by_str:
+            default_target = col_by_str[s]
+            break
+    if default_target is None and cols:
+        default_target = cols[-1]
+    default_index = cols.index(default_target) if default_target in cols else 0
+
+    target_col = st.selectbox(
+        'Select target column (classification label)',
+        options=cols,
+        index=default_index,
+        key='target_col',
+        help='This is the label the models will learn to predict.',
+    )
+
+    tv = validate_target_column(df, str(target_col))
+    if tv.warnings:
+        for w in tv.warnings:
+            st.warning(w)
+    if not tv.ok:
+        for e in tv.errors:
+            st.error(e)
+        st.info('Pick a different target column to continue.')
+        return
 
     st.divider()
     _section(3, 'Understand dataset (EDA)', 'Automated charts and a one-page summary of key issues.')
