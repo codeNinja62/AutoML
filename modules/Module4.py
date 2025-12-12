@@ -150,54 +150,147 @@ def apply_outlier_handling(
 
     raise ValueError(f"Unknown outlier action: {action!r}")
 
-# 1. Missing value handling
-def handle_missing_values(df, strategy_dict):
-    for column, strategy in strategy_dict.items():
-        if strategy == 'mean':
-            df[column].fillna(df[column].mean(), inplace=True)
-        elif strategy == 'median':
-            df[column].fillna(df[column].median(), inplace=True)
-        elif strategy == 'mode':
-            df[column].fillna(df[column].mode()[0], inplace=True)
+def handle_missing_values(df: pd.DataFrame, strategy_dict: dict) -> pd.DataFrame:
+    """Return a copy of df with missing values filled per-column.
+
+    strategy_dict maps column -> strategy where strategy is one of:
+    - 'mean', 'median' (numeric columns)
+    - 'mode' (any dtype)
+    - any other value is treated as a constant fill_value
+    """
+
+    if not isinstance(df, pd.DataFrame):
+        raise TypeError('df must be a pandas DataFrame')
+
+    out = df.copy()
+    for column, strategy in (strategy_dict or {}).items():
+        if column not in out.columns:
+            continue
+
+        s = out[column]
+        strat = str(strategy)
+        if strat in {'mean', 'median'}:
+            if not pd.api.types.is_numeric_dtype(s):
+                # Fall back to mode for non-numeric columns.
+                strat = 'mode'
+
+        if strat == 'mean':
+            fill_value = float(s.dropna().mean()) if not s.dropna().empty else 0.0
+        elif strat == 'median':
+            fill_value = float(s.dropna().median()) if not s.dropna().empty else 0.0
+        elif strat == 'mode':
+            modes = s.mode(dropna=True)
+            if not modes.empty:
+                fill_value = modes.iloc[0]
+            else:
+                fill_value = 0.0 if pd.api.types.is_numeric_dtype(s) else ''
         else:
-            df[column].fillna(strategy, inplace=True)
-    return df
+            # Treat unknown strategies as constant fill values.
+            fill_value = strategy
 
-# 2. Outlier handling by capping
-def handle_outliers_capping(df, column):
-    Q1 = df[column].quantile(0.25)
-    Q3 = df[column].quantile(0.75)
-    IQR = Q3 - Q1
-    lower_bound = Q1 - 1.5 * IQR
-    upper_bound = Q3 + 1.5 * IQR
-    df[column] = np.where(df[column] < lower_bound, lower_bound, df[column])
-    df[column] = np.where(df[column] > upper_bound, upper_bound, df[column])
-    return df
+        out[column] = s.fillna(fill_value)
 
-# 3. Scaling numerical features
-def scale_numerical_features(df, numerical_columns):
-    scaler = StandardScaler()
-    df[numerical_columns] = scaler.fit_transform(df[numerical_columns])
-    return df
+    return out
 
-# 4. Encoding categorical variables
-def encode_categorical_variables(df, categorical_columns, encoding_type='onehot'):
-    if encoding_type == 'onehot':
-        encoder = OneHotEncoder(sparse_output=False, drop='first')
-        encoded_data = encoder.fit_transform(df[categorical_columns])
-        encoded_df = pd.DataFrame(encoded_data, columns=encoder.get_feature_names_out(categorical_columns))
-        df = df.drop(columns=categorical_columns).reset_index(drop=True)
-        df = pd.concat([df, encoded_df], axis=1)
-    elif encoding_type == 'ordinal':
-        encoder = OrdinalEncoder()
-        df[categorical_columns] = encoder.fit_transform(df[categorical_columns])
-    return df
+def handle_outliers_capping(df: pd.DataFrame, column: str) -> pd.DataFrame:
+    """Cap a single numeric column using IQR bounds (returns a copy)."""
 
-# 5. Train-test split
-def split_train_test(df, target_column, test_size=0.2, random_state=42):
+    if not isinstance(df, pd.DataFrame):
+        raise TypeError('df must be a pandas DataFrame')
+    if column not in df.columns:
+        raise ValueError(f"Column {column!r} not found")
+
+    out = df.copy()
+    if not pd.api.types.is_numeric_dtype(out[column]):
+        return out
+
+    bounds = _iqr_bounds(out[column], multiplier=1.5)
+    if bounds is None:
+        return out
+    lb, ub = bounds
+    out[column] = out[column].clip(lower=lb, upper=ub)
+    return out
+
+def scale_numerical_features(
+    df: pd.DataFrame,
+    numerical_columns: list[str],
+    scaling: str = 'standard',
+) -> pd.DataFrame:
+    """Scale numeric columns (returns a copy).
+
+    scaling: 'standard' | 'minmax' | 'none'
+    """
+
+    if not isinstance(df, pd.DataFrame):
+        raise TypeError('df must be a pandas DataFrame')
+    out = df.copy()
+    cols = [c for c in (numerical_columns or []) if c in out.columns]
+    if not cols or scaling == 'none':
+        return out
+
+    scaler = MinMaxScaler() if scaling == 'minmax' else StandardScaler()
+    out[cols] = scaler.fit_transform(out[cols])
+    return out
+
+def encode_categorical_variables(
+    df: pd.DataFrame,
+    categorical_columns: list[str],
+    encoding_type: str = 'onehot',
+) -> pd.DataFrame:
+    """Encode categorical columns (returns a copy).
+
+    encoding_type: 'onehot' | 'ordinal' | 'none'
+    """
+
+    if not isinstance(df, pd.DataFrame):
+        raise TypeError('df must be a pandas DataFrame')
+    out = df.copy()
+    cols = [c for c in (categorical_columns or []) if c in out.columns]
+    if not cols or encoding_type == 'none':
+        return out
+
+    if encoding_type == 'ordinal':
+        encoder = OrdinalEncoder(handle_unknown='use_encoded_value', unknown_value=-1)
+        out[cols] = encoder.fit_transform(out[cols])
+        return out
+
+    # default: onehot
+    encoder = OneHotEncoder(handle_unknown='ignore', sparse_output=False)
+    encoded = encoder.fit_transform(out[cols])
+    encoded_df = pd.DataFrame(encoded, columns=encoder.get_feature_names_out(cols), index=out.index)
+    out = out.drop(columns=cols)
+    out = pd.concat([out, encoded_df], axis=1)
+    return out
+
+def split_train_test(
+    df: pd.DataFrame,
+    target_column: str,
+    test_size: float = 0.2,
+    random_state: int = 42,
+    stratify: bool = False,
+):
+    """Train-test split with optional stratification."""
+
+    if not isinstance(df, pd.DataFrame):
+        raise TypeError('df must be a pandas DataFrame')
+    if df.empty:
+        raise ValueError('Dataset is empty')
+    if target_column not in df.columns:
+        raise ValueError(f"Target column {target_column!r} not found")
+
     X = df.drop(columns=[target_column])
     y = df[target_column]
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=random_state)
+    if X.shape[1] == 0:
+        raise ValueError('No feature columns remain after removing the target column')
+
+    strat = y if stratify else None
+    X_train, X_test, y_train, y_test = train_test_split(
+        X,
+        y,
+        test_size=test_size,
+        random_state=random_state,
+        stratify=strat,
+    )
     return X_train, X_test, y_train, y_test
 
 
