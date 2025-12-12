@@ -35,11 +35,15 @@ from project.modules.Module1 import (
 from project.modules.Module2 import (
     correlation_matrix,
     missing_value_analysis,
+    outlier_summary_iqr,
+    outlier_summary_zscore,
     plot_categorical_distribution,
     plot_correlation_heatmap,
     plot_missing_values,
     plot_numerical_distribution,
+    plot_outlier_counts,
     plot_outlier_boxplot,
+    train_test_split_summary,
 )
 from project.modules.Module3 import (
     detect_class_imbalance,
@@ -239,7 +243,7 @@ def _render_eda_summary(df: pd.DataFrame, target_col: str):
     c7.metric('Class imbalance', 'Yes' if 'class_imbalance' in issues else 'No')
 
 
-def _render_eda(df: pd.DataFrame):
+def _render_eda(df: pd.DataFrame, *, target_col: Any, test_ratio: float):
     st.subheader('Automated EDA')
 
     st.caption('Charts are generated automatically; use expanders to focus on what you need.')
@@ -278,6 +282,48 @@ def _render_eda(df: pd.DataFrame):
             st.pyplot(plot_outlier_boxplot(df, out_choice), clear_figure=True)
         else:
             st.info('No numeric features found.')
+
+    with st.expander('Outlier detection summary (IQR / Z-score)', expanded=False):
+        if numeric_cols:
+            iqr_df = outlier_summary_iqr(df)
+            z_df = outlier_summary_zscore(df, threshold=3.0)
+
+            st.markdown('**IQR rule (1.5×IQR)**')
+            st.pyplot(plot_outlier_counts(iqr_df, title='Outliers (%) by feature — IQR'), clear_figure=True)
+            if not iqr_df.empty:
+                st.dataframe(iqr_df[['column', 'outlier_count', 'outlier_pct']], use_container_width=True)
+            else:
+                st.info('No IQR outliers detected in numeric features.')
+
+            st.markdown('**Z-score (|z| > 3.0)**')
+            st.pyplot(plot_outlier_counts(z_df, title='Outliers (%) by feature — Z-score'), clear_figure=True)
+            if not z_df.empty:
+                st.dataframe(z_df[['column', 'outlier_count', 'outlier_pct']], use_container_width=True)
+            else:
+                st.info('No Z-score outliers detected in numeric features.')
+        else:
+            st.info('No numeric features found.')
+
+    with st.expander('Train/test split summary', expanded=False):
+        try:
+            summary = train_test_split_summary(df, target_col=target_col, test_size=float(test_ratio))
+            c1, c2, c3 = st.columns(3)
+            c1.metric('Train rows', int(summary['train_rows']))
+            c2.metric('Test rows', int(summary['test_rows']))
+            c3.metric('Features (X)', int(summary['n_features']))
+
+            st.caption('Stratified split summary (same split logic used for training).')
+            st.dataframe(
+                pd.DataFrame(
+                    {
+                        'train': pd.Series(summary['train_class_counts']),
+                        'test': pd.Series(summary['test_class_counts']),
+                    }
+                ).fillna(0).astype(int),
+                use_container_width=True,
+            )
+        except Exception as e:
+            st.warning(f'Unable to compute a stratified split summary: {e}')
 
 
 def _detect_issues(df: pd.DataFrame, target_col: str) -> dict[str, Any]:
@@ -680,7 +726,7 @@ def main():
     st.divider()
     _section(3, 'Understand dataset (EDA)', 'Automated charts and a one-page summary of key issues.')
     _render_eda_summary(df, target_col)
-    _render_eda(df)
+    _render_eda(df, target_col=target_col, test_ratio=float(test_ratio))
 
     st.divider()
     _section(4, 'Approve preprocessing', 'Review detected issues and confirm preprocessing decisions.')
