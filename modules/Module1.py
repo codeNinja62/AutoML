@@ -115,7 +115,7 @@ class TargetValidation:
 
 def validate_target_column(
     df: pd.DataFrame,
-    target_column: str,
+    target_column: Any,
     *,
     min_classes: int = 2,
     min_samples_per_class: int = 2,
@@ -131,7 +131,7 @@ def validate_target_column(
     if target_column not in df.columns:
         return TargetValidation(
             ok=False,
-            errors=[f"Target column '{target_column}' not found."],
+            errors=[f"Target column {target_column!r} not found."],
             warnings=[],
             missing_target=0,
             n_classes=0,

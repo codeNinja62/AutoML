@@ -684,7 +684,7 @@ def main():
         help='This is the label the models will learn to predict.',
     )
 
-    tv = validate_target_column(df, str(target_col))
+    tv = validate_target_column(df, target_col)
     if tv.warnings:
         for w in tv.warnings:
             st.warning(w)
@@ -703,6 +703,17 @@ def main():
     _section(4, 'Approve preprocessing', 'Review detected issues and confirm preprocessing decisions.')
 
     df_after, choices, issues = _render_issue_detection_and_choices(df, target_col)
+
+    # Safety: preprocessing (especially outlier row removal) can change the target distribution.
+    tv_after = validate_target_column(df_after, target_col)
+    if tv_after.warnings:
+        for w in tv_after.warnings:
+            st.warning(w)
+    if not tv_after.ok:
+        for e in tv_after.errors:
+            st.error(e)
+        st.info('Preprocessing made the target invalid (e.g., only one class left). Adjust preprocessing or choose another target.')
+        return
     st.divider()
 
     _section(5, 'Train & compare models', 'Models are trained with your selected options from the sidebar.')
