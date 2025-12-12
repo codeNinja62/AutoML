@@ -97,6 +97,14 @@ def _estimate_workload_text(search_type: str, cv: int, n_models: int) -> str:
     return base
 
 
+def _safe_filename_component(value: Any, *, max_len: int = 80) -> str:
+    text = str(value) if value is not None else ''
+    text = re.sub(r'[^A-Za-z0-9._-]+', '_', text).strip('_')
+    if not text:
+        return 'model'
+    return text[:max_len]
+
+
 def _split_feasibility_hint(df: pd.DataFrame, target_col: str, test_ratio: float) -> dict[str, Any]:
     """Return simple diagnostics + a recommended test ratio when stratified split fails."""
 
@@ -1249,7 +1257,7 @@ def main():
                 st.download_button(
                     'Download best model',
                     data=buffer.getvalue(),
-                    file_name='best_model.joblib',
+                    file_name=f"best_model_{_safe_filename_component(best_name)}.joblib",
                     mime='application/octet-stream',
                     key='dl_best_model_primary',
                 )
@@ -1428,6 +1436,7 @@ def main():
         st.download_button(
             'Download best model (pickle/joblib)',
             data=buffer.getvalue(),
-            file_name='best_model.joblib',
+            file_name=f"best_model_{_safe_filename_component(best_name)}.joblib",
             mime='application/octet-stream',
+            key='dl_best_model_export',
         )
