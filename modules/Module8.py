@@ -490,6 +490,63 @@ def _render_issue_detection_and_choices(df: pd.DataFrame, target_col: str) -> tu
                     st.warning(f"Detected: {k}")
                     st.write(v)
 
+    # Recognition over recall: recommend sensible defaults derived from detected issues.
+    stored_choices: dict[str, Any] = st.session_state.get('preprocess_choices') or {}
+
+    def _safe_index(options: list[str], value: Any, fallback: int = 0) -> int:
+        try:
+            return options.index(value)
+        except Exception:
+            return int(fallback)
+
+    recommended: dict[str, Any] = {
+        'numeric_impute_ui': 'median',
+        'categorical_impute_ui': 'most_frequent',
+        'scaling_ui': 'standard',
+        'encoding_ui': 'onehot',
+        'outlier_action_ui': 'no_action',
+        'outlier_method_ui': 'iqr',
+    }
+
+    try:
+        issue_keys = set(str(f.get('key')) for f in findings if f.get('key'))
+        if 'missing_values' in issue_keys:
+            recommended['numeric_impute_ui'] = 'median'
+            recommended['categorical_impute_ui'] = 'most_frequent'
+        if 'outliers_iqr' in issue_keys or 'outliers_zscore' in issue_keys:
+            recommended['outlier_action_ui'] = 'cap_iqr'
+            recommended['outlier_method_ui'] = 'iqr'
+        if 'high_cardinality' in issue_keys:
+            recommended['encoding_ui'] = 'auto'
+    except Exception:
+        pass
+
+    with st.expander('Recommended preprocessing (based on detected issues)', expanded=bool(findings)):
+        st.write('- Missing values → numeric: ' + str(recommended['numeric_impute_ui']) + ', categorical: ' + str(recommended['categorical_impute_ui']))
+        st.write('- Encoding → ' + str(recommended['encoding_ui']))
+        st.write('- Scaling → ' + str(recommended['scaling_ui']))
+        st.write('- Outliers → ' + str(recommended['outlier_action_ui']) + ' (method: ' + str(recommended['outlier_method_ui']) + ')')
+
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button('Use recommended defaults'):
+                st.session_state['pp_numeric_impute_ui'] = recommended['numeric_impute_ui']
+                st.session_state['pp_categorical_impute_ui'] = recommended['categorical_impute_ui']
+                st.session_state['pp_scaling_ui'] = recommended['scaling_ui']
+                st.session_state['pp_encoding_ui'] = recommended['encoding_ui']
+                st.session_state['pp_outlier_action_ui'] = recommended['outlier_action_ui']
+                st.session_state['pp_outlier_method_ui'] = recommended['outlier_method_ui']
+                st.rerun()
+        with c2:
+            if stored_choices and st.button('Use last applied settings'):
+                st.session_state['pp_numeric_impute_ui'] = stored_choices.get('numeric_impute', 'median')
+                st.session_state['pp_categorical_impute_ui'] = stored_choices.get('categorical_impute', 'most_frequent')
+                st.session_state['pp_scaling_ui'] = stored_choices.get('scaling', 'standard')
+                st.session_state['pp_encoding_ui'] = stored_choices.get('encoding', 'onehot')
+                st.session_state['pp_outlier_action_ui'] = stored_choices.get('outlier_action', 'no_action')
+                st.session_state['pp_outlier_method_ui'] = stored_choices.get('outlier_method', 'iqr')
+                st.rerun()
+
     st.markdown('**Choose preprocessing options (applied only when you click “Apply preprocessing”)**')
 
     with st.form('preprocess_form', clear_on_submit=False):
@@ -499,8 +556,13 @@ def _render_issue_detection_and_choices(df: pd.DataFrame, target_col: str) -> tu
             numeric_impute = st.selectbox(
                 'Missing values (numeric):',
                 options=['mean', 'median', 'mode', 'constant'],
-                index=1,
+                index=_safe_index(
+                    ['mean', 'median', 'mode', 'constant'],
+                    st.session_state.get('pp_numeric_impute_ui', stored_choices.get('numeric_impute', recommended['numeric_impute_ui'])),
+                    fallback=1,
+                ),
                 help='How to impute missing values in numeric columns.',
+                key='pp_numeric_impute_ui',
             )
             numeric_fill_value = None
             if numeric_impute == 'constant':
@@ -509,22 +571,37 @@ def _render_issue_detection_and_choices(df: pd.DataFrame, target_col: str) -> tu
             scaling = st.selectbox(
                 'Scaling:',
                 options=['standard', 'minmax', 'none'],
-                index=0,
+                index=_safe_index(
+                    ['standard', 'minmax', 'none'],
+                    st.session_state.get('pp_scaling_ui', stored_choices.get('scaling', recommended['scaling_ui'])),
+                    fallback=0,
+                ),
                 help='StandardScaler or MinMaxScaler (or no scaling).',
+                key='pp_scaling_ui',
             )
             outlier_method = st.selectbox(
                 'Outlier detection method:',
                 options=['iqr', 'zscore'],
-                index=0,
+                index=_safe_index(
+                    ['iqr', 'zscore'],
+                    st.session_state.get('pp_outlier_method_ui', stored_choices.get('outlier_method', recommended['outlier_method_ui'])),
+                    fallback=0,
+                ),
                 help='Used to decide which rows/values are considered outliers.',
+                key='pp_outlier_method_ui',
             )
 
         with c2:
             categorical_impute = st.selectbox(
                 'Missing values (categorical):',
                 options=['most_frequent', 'constant'],
-                index=0,
+                index=_safe_index(
+                    ['most_frequent', 'constant'],
+                    st.session_state.get('pp_categorical_impute_ui', stored_choices.get('categorical_impute', recommended['categorical_impute_ui'])),
+                    fallback=0,
+                ),
                 help='How to impute missing values in categorical columns.',
+                key='pp_categorical_impute_ui',
             )
             categorical_fill_value = None
             if categorical_impute == 'constant':
@@ -533,14 +610,24 @@ def _render_issue_detection_and_choices(df: pd.DataFrame, target_col: str) -> tu
             encoding = st.selectbox(
                 'Categorical encoding:',
                 options=['onehot', 'ordinal', 'auto'],
-                index=0,
+                index=_safe_index(
+                    ['onehot', 'ordinal', 'auto'],
+                    st.session_state.get('pp_encoding_ui', stored_choices.get('encoding', recommended['encoding_ui'])),
+                    fallback=0,
+                ),
                 help='One-Hot Encoding or Ordinal Encoding.',
+                key='pp_encoding_ui',
             )
             outlier_action = st.selectbox(
                 'Outlier handling:',
                 options=['no_action', 'cap_iqr', 'remove_rows'],
-                index=0,
+                index=_safe_index(
+                    ['no_action', 'cap_iqr', 'remove_rows'],
+                    st.session_state.get('pp_outlier_action_ui', stored_choices.get('outlier_action', recommended['outlier_action_ui'])),
+                    fallback=0,
+                ),
                 help='Cap using IQR bounds, remove outlier rows, or take no action.',
+                key='pp_outlier_action_ui',
             )
 
         apply_now = st.form_submit_button('Apply preprocessing (with approval)')
