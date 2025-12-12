@@ -10,12 +10,16 @@
 
 from __future__ import annotations
 
+import os
 import time
+import tempfile
 from typing import Any
 
 import numpy as np
 import pandas as pd
-from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
+from joblib import Memory
+from sklearn.model_selection import GridSearchCV, RandomizedSearchCV, StratifiedKFold
+from sklearn.pipeline import Pipeline
 from sklearn.linear_model import LogisticRegression
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.tree import DecisionTreeClassifier
@@ -41,9 +45,14 @@ def train_and_optimize_models(
     scoring: str | None = None,
     random_state: int = 42,
     include_models: list[str] | None = None,
+    preprocessor=None,
+    n_jobs: int | None = -1,
+    cache: bool = True,
+    class_weight_auto: bool = False,
 ):
+    cw = 'balanced' if class_weight_auto else None
     models: dict[str, tuple[Any, dict[str, Any]]] = {
-        'Logistic Regression': (LogisticRegression(max_iter=2000, random_state=random_state), {
+        'Logistic Regression': (LogisticRegression(max_iter=2000, random_state=random_state, class_weight=cw), {
             'C': [0.01, 0.1, 1, 10],
             'solver': ['liblinear']
         }),
@@ -51,16 +60,16 @@ def train_and_optimize_models(
             'n_neighbors': [3, 5, 7],
             'weights': ['uniform', 'distance']
         }),
-        'Decision Tree': (DecisionTreeClassifier(), {
+        'Decision Tree': (DecisionTreeClassifier(random_state=random_state, class_weight=cw), {
             'max_depth': [None, 10, 20],
             'min_samples_split': [2, 5, 10]
         }),
         'Naive Bayes': (GaussianNB(), {}),
-        'Random Forest': (RandomForestClassifier(random_state=random_state), {
+        'Random Forest': (RandomForestClassifier(random_state=random_state, n_jobs=n_jobs, class_weight=cw), {
             'n_estimators': [50, 100, 200],
             'max_depth': [None, 10, 20]
         }),
-        'Support Vector Machine': (SVC(probability=True, random_state=random_state), {
+        'Support Vector Machine': (SVC(probability=True, random_state=random_state, class_weight=cw), {
             'C': [0.1, 1, 10],
             'kernel': ['linear', 'rbf']
         }),
@@ -70,23 +79,57 @@ def train_and_optimize_models(
     
     best_models = {}
     
+    cv_splitter = StratifiedKFold(n_splits=int(cv), shuffle=True, random_state=random_state)
+    cache_dir = os.path.join(tempfile.gettempdir(), 'cs245_automl_cache')
+    memory = Memory(location=cache_dir, verbose=0) if cache else None
+
     for model_name, (model, params) in models.items():
         if include_models is not None and model_name not in include_models:
             continue
         start_time = time.time()
         
         try:
-            if search_type == 'grid' and params:
-                search = GridSearchCV(model, params, cv=cv, n_jobs=-1, scoring=scoring)
-            elif search_type == 'random' and params:
-                search = RandomizedSearchCV(model, params, cv=cv, n_jobs=-1, n_iter=10, scoring=scoring, random_state=random_state)
+            # Best practice: run CV/search on the full pipeline so preprocessing happens inside each fold.
+            if preprocessor is not None:
+                estimator: Any = Pipeline(
+                    steps=[('preprocess', preprocessor), ('model', model)],
+                    memory=memory,
+                )
+                tuned_params = {f'model__{k}': v for k, v in (params or {}).items()}
             else:
-                search = model
+                estimator = model
+                tuned_params = params or {}
+
+            if search_type == 'grid' and tuned_params:
+                search = GridSearchCV(
+                    estimator,
+                    tuned_params,
+                    cv=cv_splitter,
+                    n_jobs=n_jobs,
+                    scoring=scoring,
+                )
+            elif search_type == 'random' and tuned_params:
+                search = RandomizedSearchCV(
+                    estimator,
+                    tuned_params,
+                    cv=cv_splitter,
+                    n_jobs=n_jobs,
+                    n_iter=10,
+                    scoring=scoring,
+                    random_state=random_state,
+                )
+            else:
+                search = estimator
 
             search.fit(X_train, y_train)
             fitted = search
-            best_estimator = fitted.best_estimator_ if params and hasattr(fitted, 'best_estimator_') else fitted
-            best_params = fitted.best_params_ if params and hasattr(fitted, 'best_params_') else {}
+            best_estimator = fitted.best_estimator_ if tuned_params and hasattr(fitted, 'best_estimator_') else fitted
+            best_params_raw = fitted.best_params_ if tuned_params and hasattr(fitted, 'best_params_') else {}
+            # Strip pipeline prefix for display
+            best_params = {
+                (k.replace('model__', '', 1) if isinstance(k, str) else k): v
+                for k, v in (best_params_raw or {}).items()
+            }
             error = None
         except Exception as e:
             best_estimator = None

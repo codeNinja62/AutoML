@@ -145,14 +145,14 @@ def _render_preview_tools(df: pd.DataFrame) -> pd.DataFrame:
             with st.form('feature_create_form', clear_on_submit=False):
                 fc1, fc2, fc3 = st.columns([3, 2, 3])
                 with fc1:
-                    col_a = st.selectbox('Column A', options=numeric_cols, key='feat_col_a')
+                    col_a = st.selectbox('Column A', options=numeric_cols, key='cleanup_feat_col_a')
                 with fc2:
-                    op = st.selectbox('Operation', options=['+', '-', '*', '/'], key='feat_op')
+                    op = st.selectbox('Operation', options=['+', '-', '*', '/'], key='cleanup_feat_op')
                 with fc3:
-                    col_b = st.selectbox('Column B', options=numeric_cols, key='feat_col_b')
+                    col_b = st.selectbox('Column B', options=numeric_cols, key='cleanup_feat_col_b')
 
                 default_name = _sanitize_column_name(f"{col_a}{op}{col_b}")
-                new_name = st.text_input('New feature name', value=default_name, key='feat_name')
+                new_name = st.text_input('New feature name', value=default_name, key='cleanup_feat_name')
                 add_feature = st.form_submit_button('Add feature')
             if add_feature:
                 new_name = _sanitize_column_name(new_name)
@@ -189,55 +189,9 @@ def _render_preview_tools(df: pd.DataFrame) -> pd.DataFrame:
                 st.success('Renamed columns applied.')
             else:
                 st.info('No column renames detected.')
-    drop_cols = st.multiselect('Remove columns (e.g., IDs)', options=list(df.columns))
-    if drop_cols:
-        df = df.drop(columns=drop_cols)
 
-    st.markdown('**Feature creation (combine two numeric columns)**')
-    numeric_cols = df.select_dtypes(include='number').columns.tolist()
-    if len(numeric_cols) >= 2:
-        fc1, fc2, fc3 = st.columns([3, 2, 3])
-        with fc1:
-            col_a = st.selectbox('Column A', options=numeric_cols, key='feat_col_a')
-        with fc2:
-            op = st.selectbox('Operation', options=['+', '-', '*', '/'], key='feat_op')
-        with fc3:
-            col_b = st.selectbox('Column B', options=numeric_cols, key='feat_col_b')
-
-        default_name = _sanitize_column_name(f"{col_a}{op}{col_b}")
-        new_name = st.text_input('New feature name', value=default_name, key='feat_name')
-        if st.button('Add feature'):
-            new_name = _sanitize_column_name(new_name)
-            if new_name in df.columns:
-                st.error('Feature name already exists. Choose a different name.')
-            else:
-                if op == '+':
-                    df[new_name] = df[col_a] + df[col_b]
-                elif op == '-':
-                    df[new_name] = df[col_a] - df[col_b]
-                elif op == '*':
-                    df[new_name] = df[col_a] * df[col_b]
-                else:
-                    df[new_name] = df[col_a] / df[col_b].replace({0: np.nan})
-                st.success(f'Added new feature: {new_name}')
-    else:
-        st.info('Need at least two numeric columns to create a combined feature.')
-
-    st.markdown('**Rename columns**')
-    rename_df = pd.DataFrame({'current': list(df.columns), 'new': list(df.columns)})
-    edited = st.data_editor(rename_df, num_rows='fixed', use_container_width=True)
-    if st.button('Apply column renames'):
-        mapping = {}
-        for _, row in edited.iterrows():
-            cur = row['current']
-            new = _sanitize_column_name(row['new'])
-            if cur != new:
-                mapping[cur] = new
-        if mapping:
-            df = df.rename(columns=mapping)
-            st.success('Renamed columns applied.')
-        else:
-            st.info('No column renames detected.')
+    # Note: cleanup actions are intentionally only available inside the expander/forms above
+    # to prevent accidental dataset mutations during Streamlit reruns.
 
     return df
 
@@ -548,12 +502,18 @@ def main():
 
     with st.sidebar:
         st.header('Configuration')
-        st.caption('Tip: work top-to-bottom; each step unlocks the next.')
+        st.caption('Tip: adjust settings → apply → then train.')
 
-        primary_metric = st.selectbox('Primary ranking metric', options=['f1', 'accuracy', 'precision', 'recall'], index=0)
-        search_type = st.selectbox('Hyperparameter search', options=['grid', 'random'], index=0)
-        test_ratio = st.slider('Test split ratio', min_value=0.1, max_value=0.5, value=0.2, step=0.05)
-        cv = st.slider('CV folds', min_value=3, max_value=5, value=3, step=1)
+        default_cfg = {
+            'primary_metric': 'f1',
+            'search_type': 'grid',
+            'test_ratio': 0.2,
+            'cv': 3,
+        }
+        if 'train_cfg' not in st.session_state:
+            st.session_state['train_cfg'] = default_cfg
+
+        cfg = st.session_state.get('train_cfg', default_cfg)
 
         model_options = [
             'Logistic Regression',
@@ -564,7 +524,64 @@ def main():
             'Support Vector Machine',
             'Rule-based (Most Frequent)',
         ]
-        selected_models = st.multiselect('Models to train', options=model_options, default=model_options)
+        if 'selected_models' not in st.session_state:
+            st.session_state['selected_models'] = model_options
+
+        with st.form('training_config_form', clear_on_submit=False):
+            primary_metric = st.selectbox(
+                'Primary ranking metric',
+                options=['f1', 'accuracy', 'precision', 'recall'],
+                index=['f1', 'accuracy', 'precision', 'recall'].index(cfg.get('primary_metric', 'f1')),
+                key='cfg_primary_metric',
+            )
+            search_type = st.selectbox(
+                'Hyperparameter search',
+                options=['grid', 'random'],
+                index=['grid', 'random'].index(cfg.get('search_type', 'grid')),
+                key='cfg_search_type',
+            )
+            test_ratio = st.slider(
+                'Test split ratio',
+                min_value=0.1,
+                max_value=0.5,
+                value=float(cfg.get('test_ratio', 0.2)),
+                step=0.05,
+                key='cfg_test_ratio',
+            )
+            cv = st.slider(
+                'CV folds',
+                min_value=3,
+                max_value=5,
+                value=int(cfg.get('cv', 3)),
+                step=1,
+                key='cfg_cv',
+            )
+
+            selected_models = st.multiselect(
+                'Models to train',
+                options=model_options,
+                default=st.session_state.get('selected_models', model_options),
+                key='cfg_selected_models',
+            )
+
+            apply_training_cfg = st.form_submit_button('Apply training settings')
+
+        if apply_training_cfg:
+            st.session_state['train_cfg'] = {
+                'primary_metric': primary_metric,
+                'search_type': search_type,
+                'test_ratio': float(test_ratio),
+                'cv': int(cv),
+            }
+            st.session_state['selected_models'] = selected_models
+            st.success('Training settings applied.')
+
+        cfg = st.session_state.get('train_cfg', default_cfg)
+        primary_metric = cfg['primary_metric']
+        search_type = cfg['search_type']
+        test_ratio = float(cfg['test_ratio'])
+        cv = int(cfg['cv'])
+        selected_models = st.session_state.get('selected_models', model_options)
 
         st.divider()
         st.subheader('Progress')
@@ -576,7 +593,7 @@ def main():
         st.write('4) Training complete:', 'Done' if has_training else 'Not yet')
 
         if st.button('Reset session (undo changes)'):
-            for k in ['raw_df', 'working_df', 'working_df_sig', 'trained_models', 'evaluation_results', 'preprocess_choices', 'issues']:
+            for k in ['raw_df', 'working_df', 'working_df_sig', 'trained_models', 'evaluation_results', 'preprocess_choices', 'issues', 'train_cfg', 'selected_models']:
                 if k in st.session_state:
                     del st.session_state[k]
             st.rerun()
@@ -674,21 +691,24 @@ def main():
         encoding=choices.encoding,
     )
 
+    class_weight_auto = bool(st.session_state.get('issues', {}).get('class_imbalance'))
+
     if run_training:
         with st.spinner('Training models (this may take a bit)...'):
-            # Train all models on transformed data by wrapping each estimator in the same preprocessor pipeline.
-            X_train_t = preprocessor.fit_transform(X_train)
-            X_test_t = preprocessor.transform(X_test)
-
             trained = train_and_optimize_models(
-                X_train_t,
+                X_train,
                 y_train,
                 search_type=search_type,
                 cv=int(cv),
                 scoring=scoring,
                 include_models=selected_models,
+                preprocessor=preprocessor,
+                n_jobs=-1,
+                cache=True,
+                class_weight_auto=class_weight_auto,
             )
-            evals = evaluate_models(trained, X_test_t, y_test)
+
+            evals = evaluate_models(trained, X_test, y_test)
             st.session_state['trained_models'] = trained
             st.session_state['evaluation_results'] = evals
             st.session_state['preprocess_choices'] = choices.__dict__
@@ -835,9 +855,7 @@ def main():
             if model is None or not hasattr(model, 'predict_proba'):
                 continue
             try:
-                # Use already transformed test set via current preprocessor
-                Xt = preprocessor.transform(X_test)
-                proba = model.predict_proba(Xt)[:, 1]
+                proba = model.predict_proba(X_test)[:, 1]
                 fpr, tpr, _ = roc_curve(y_test, proba)
                 ax.plot(fpr, tpr, label=model_name)
                 plotted_any = True
@@ -886,9 +904,8 @@ def main():
     )
 
     if best_name and st.session_state.get('trained_models', {}).get(best_name, {}).get('model') is not None:
-        # Export winning model pipeline as a single object (preprocessor + estimator)
-        best_est = st.session_state['trained_models'][best_name]['model']
-        export_pipeline = Pipeline(steps=[('preprocess', preprocessor), ('model', best_est)])
+        # Export winning model pipeline as a single object (already includes preprocessing)
+        export_pipeline = st.session_state['trained_models'][best_name]['model']
         buffer = io.BytesIO()
         joblib.dump(export_pipeline, buffer)
         st.download_button(
