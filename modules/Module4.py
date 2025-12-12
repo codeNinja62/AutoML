@@ -19,6 +19,137 @@ from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import MinMaxScaler, OneHotEncoder, OrdinalEncoder, StandardScaler
 
+
+def _numeric_feature_columns(df: pd.DataFrame, exclude: list[str] | None = None) -> list[str]:
+    exclude_set = set(exclude or [])
+    cols = [c for c in df.select_dtypes(include='number').columns.tolist() if c not in exclude_set]
+    return cols
+
+
+def _iqr_bounds(series: pd.Series, multiplier: float = 1.5) -> tuple[float, float] | None:
+    s = series.dropna()
+    if s.empty:
+        return None
+    q1 = float(s.quantile(0.25))
+    q3 = float(s.quantile(0.75))
+    iqr = q3 - q1
+    lb = q1 - multiplier * iqr
+    ub = q3 + multiplier * iqr
+    return lb, ub
+
+
+def _row_outlier_mask_iqr(
+    df: pd.DataFrame,
+    numeric_columns: list[str],
+    multiplier: float = 1.5,
+) -> pd.Series:
+    if df.empty or not numeric_columns:
+        return pd.Series(False, index=df.index)
+    mask = pd.Series(False, index=df.index)
+    for col in numeric_columns:
+        bounds = _iqr_bounds(df[col], multiplier=multiplier)
+        if bounds is None:
+            continue
+        lb, ub = bounds
+        mask = mask | (df[col] < lb) | (df[col] > ub)
+    return mask
+
+
+def _row_outlier_mask_zscore(
+    df: pd.DataFrame,
+    numeric_columns: list[str],
+    threshold: float = 3.0,
+) -> pd.Series:
+    if df.empty or not numeric_columns:
+        return pd.Series(False, index=df.index)
+    mask = pd.Series(False, index=df.index)
+    for col in numeric_columns:
+        s = df[col]
+        s_non_null = s.dropna()
+        if s_non_null.empty:
+            continue
+        mean = float(s_non_null.mean())
+        std = float(s_non_null.std(ddof=0))
+        if std == 0.0:
+            continue
+        z = (s - mean).abs() / std
+        mask = mask | (z > threshold)
+    return mask
+
+
+def apply_outlier_handling(
+    df: pd.DataFrame,
+    action: str = 'no_action',
+    method: str = 'iqr',
+    *,
+    exclude_columns: list[str] | None = None,
+    numeric_columns: list[str] | None = None,
+    iqr_multiplier: float = 1.5,
+    zscore_threshold: float = 3.0,
+) -> tuple[pd.DataFrame, dict]:
+    """Apply simple dataset-level outlier handling.
+
+    Supported actions:
+    - no_action: return df unchanged
+    - cap_iqr: cap each numeric column to its IQR bounds
+    - remove_rows: drop any row that is an outlier by the selected method
+
+    Returns a (new_df, summary) tuple.
+    """
+
+    if not isinstance(df, pd.DataFrame):
+        raise TypeError('df must be a pandas DataFrame')
+
+    action = str(action)
+    method = str(method)
+
+    if numeric_columns is None:
+        numeric_columns = _numeric_feature_columns(df, exclude=exclude_columns)
+    else:
+        numeric_columns = [c for c in numeric_columns if c in df.columns]
+
+    before_rows = int(df.shape[0])
+    summary = {
+        'action': action,
+        'method': method,
+        'numeric_columns': list(numeric_columns),
+        'rows_before': before_rows,
+        'rows_after': before_rows,
+        'rows_removed': 0,
+        'values_capped': 0,
+    }
+
+    if action == 'no_action' or before_rows == 0 or not numeric_columns:
+        return df.copy(), summary
+
+    if action == 'cap_iqr':
+        capped = df.copy()
+        values_capped = 0
+        for col in numeric_columns:
+            bounds = _iqr_bounds(capped[col], multiplier=iqr_multiplier)
+            if bounds is None:
+                continue
+            lb, ub = bounds
+            s = capped[col]
+            # Count how many non-null values would be capped.
+            to_cap = s.notna() & ((s < lb) | (s > ub))
+            values_capped += int(to_cap.sum())
+            capped[col] = s.clip(lower=lb, upper=ub)
+        summary['values_capped'] = int(values_capped)
+        return capped, summary
+
+    if action == 'remove_rows':
+        if method == 'zscore':
+            mask = _row_outlier_mask_zscore(df, numeric_columns=numeric_columns, threshold=zscore_threshold)
+        else:
+            mask = _row_outlier_mask_iqr(df, numeric_columns=numeric_columns, multiplier=iqr_multiplier)
+        kept = df.loc[~mask].copy()
+        summary['rows_after'] = int(kept.shape[0])
+        summary['rows_removed'] = int(before_rows - kept.shape[0])
+        return kept, summary
+
+    raise ValueError(f"Unknown outlier action: {action!r}")
+
 # 1. Missing value handling
 def handle_missing_values(df, strategy_dict):
     for column, strategy in strategy_dict.items():

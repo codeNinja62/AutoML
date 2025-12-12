@@ -54,7 +54,7 @@ from project.modules.Module3 import (
     detect_outliers_iqr,
     detect_outliers_zscore,
 )
-from project.modules.Module4 import build_preprocessor, handle_outliers_capping, split_train_test_stratified
+from project.modules.Module4 import apply_outlier_handling, build_preprocessor, split_train_test_stratified
 from project.modules.Module5 import evaluate_models, train_and_optimize_models
 from project.modules.Module6 import plot_metric_bars, rank_algorithms, show_comparison_table
 from project.modules.Module7 import generate_dataset_overview, export_report_as_markdown_bytes
@@ -517,27 +517,16 @@ def _render_issue_detection_and_choices(df: pd.DataFrame, target_col: str) -> tu
     before_df = df.copy()
 
     # Outlier handling (simple, dataset-level) BEFORE split.
-    if choices.outlier_action == 'cap_iqr':
-        for col in before_df.select_dtypes(include='number').columns:
-            before_df = handle_outliers_capping(before_df, col)
-    elif choices.outlier_action == 'remove_rows':
-        numeric_cols = before_df.select_dtypes(include='number').columns
-        if len(numeric_cols) > 0:
-            mask = pd.Series(False, index=before_df.index)
-            if choices.outlier_method == 'zscore':
-                out = detect_outliers_zscore(before_df)
-                for idxs in out.values():
-                    mask.loc[idxs] = True
-            else:
-                # IQR row removal: any row outlying on any numeric column
-                for col in numeric_cols:
-                    q1 = before_df[col].quantile(0.25)
-                    q3 = before_df[col].quantile(0.75)
-                    iqr = q3 - q1
-                    lb = q1 - 1.5 * iqr
-                    ub = q3 + 1.5 * iqr
-                    mask = mask | (before_df[col] < lb) | (before_df[col] > ub)
-            before_df = before_df.loc[~mask].copy()
+    try:
+        before_df, _outlier_summary = apply_outlier_handling(
+            before_df,
+            action=choices.outlier_action,
+            method=choices.outlier_method,
+            exclude_columns=[target_col],
+        )
+    except Exception:
+        # Outlier handling should never block the user; any hard failures become no-ops.
+        pass
 
     # Auto-clean: drop feature columns that are entirely missing.
     # (These break many sklearn preprocessors and carry no signal.)
