@@ -1071,7 +1071,7 @@ def main():
             rec = hint.get('recommended_test_ratio')
             if rec is not None:
                 st.caption(f"Suggested test ratio (feasible minimum): {rec:.2f}")
-                c1, c2 = st.columns(2)
+                c1, c2, c3 = st.columns(3)
                 with c1:
                     if st.button(f'Set test ratio to {rec:.2f} and retry'):
                         cfg2 = dict(st.session_state.get('train_cfg', {}))
@@ -1081,6 +1081,13 @@ def main():
                 with c2:
                     if st.button('Set CV folds to 2 and retry'):
                         cfg2 = dict(st.session_state.get('train_cfg', {}))
+                        cfg2['cv'] = 2
+                        st.session_state['train_cfg'] = cfg2
+                        st.rerun()
+                with c3:
+                    if st.button('Apply recommended split fix'):
+                        cfg2 = dict(st.session_state.get('train_cfg', {}))
+                        cfg2['test_ratio'] = float(rec)
                         cfg2['cv'] = 2
                         st.session_state['train_cfg'] = cfg2
                         st.rerun()
@@ -1170,6 +1177,38 @@ def main():
         if failed_rows:
             with st.expander(f'Failed models ({len(failed_rows)})', expanded=True):
                 st.caption('These models failed during training or evaluation. Fix the issue, then retrain.')
+                c1, c2, c3, c4 = st.columns(4)
+                with c1:
+                    if st.button('Retrain baseline only', key='fm_retrain_baseline'):
+                        st.session_state['selected_models'] = ['Rule-based (Most Frequent)']
+                        for k in ['trained_models', 'evaluation_results', 'best_model_name', 'last_training_ran_at']:
+                            if k in st.session_state:
+                                del st.session_state[k]
+                        st.rerun()
+                with c2:
+                    if st.button('Retrain with CV=2', key='fm_retrain_cv2'):
+                        cfg2 = dict(st.session_state.get('train_cfg', {}))
+                        cfg2['cv'] = 2
+                        st.session_state['train_cfg'] = cfg2
+                        for k in ['trained_models', 'evaluation_results', 'best_model_name', 'last_training_ran_at']:
+                            if k in st.session_state:
+                                del st.session_state[k]
+                        st.rerun()
+                with c3:
+                    if st.button('Retrain with grid search', key='fm_retrain_grid'):
+                        cfg2 = dict(st.session_state.get('train_cfg', {}))
+                        cfg2['search_type'] = 'grid'
+                        st.session_state['train_cfg'] = cfg2
+                        for k in ['trained_models', 'evaluation_results', 'best_model_name', 'last_training_ran_at']:
+                            if k in st.session_state:
+                                del st.session_state[k]
+                        st.rerun()
+                with c4:
+                    if st.button('Clear results', key='fm_clear_results'):
+                        for k in ['trained_models', 'evaluation_results', 'best_model_name', 'last_training_ran_at']:
+                            if k in st.session_state:
+                                del st.session_state[k]
+                        st.rerun()
                 st.dataframe(pd.DataFrame(failed_rows), use_container_width=True)
     except Exception:
         pass
@@ -1208,7 +1247,7 @@ def main():
     if best_name is None:
         st.error('No models successfully trained. Review errors below and try a simpler configuration.')
         with st.expander('Fix this (recommended actions)', expanded=True):
-            c1, c2, c3 = st.columns(3)
+            c1, c2, c3, c4 = st.columns(4)
             with c1:
                 if st.button('Use baseline only'):
                     st.session_state['selected_models'] = ['Rule-based (Most Frequent)']
@@ -1230,6 +1269,18 @@ def main():
                 if st.button('Set CV folds to 2'):
                     cfg2 = dict(st.session_state.get('train_cfg', {}))
                     cfg2['cv'] = 2
+                    st.session_state['train_cfg'] = cfg2
+                    for k in ['trained_models', 'evaluation_results', 'best_model_name', 'last_training_ran_at']:
+                        if k in st.session_state:
+                            del st.session_state[k]
+                    st.rerun()
+            with c4:
+                if st.button('Safe quick config'):
+                    # A conservative setup that often avoids errors/timeouts.
+                    st.session_state['selected_models'] = ['Rule-based (Most Frequent)']
+                    cfg2 = dict(st.session_state.get('train_cfg', {}))
+                    cfg2['cv'] = 2
+                    cfg2['search_type'] = 'grid'
                     st.session_state['train_cfg'] = cfg2
                     for k in ['trained_models', 'evaluation_results', 'best_model_name', 'last_training_ran_at']:
                         if k in st.session_state:
