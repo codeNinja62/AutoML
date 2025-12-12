@@ -27,6 +27,7 @@ from project.modules.Module1 import (
     get_dataset_schema,
     get_shape,
     get_summary_statistics,
+    get_all_missing_columns,
     get_constant_columns,
     infer_target_candidates,
     validate_target_column,
@@ -734,6 +735,34 @@ def main():
             st.warning(
                 f'Found {len(const_cols)} constant feature(s): {preview}{more}. '
                 "These won't help models and may indicate a data issue."
+            )
+    except Exception:
+        pass
+
+    # Guardrail: all-missing feature columns can break imputers/scalers.
+    try:
+        all_missing_cols = get_all_missing_columns(df_after, exclude=[target_col])
+        if all_missing_cols:
+            preview = ', '.join([str(c) for c in all_missing_cols[:8]])
+            more = '' if len(all_missing_cols) <= 8 else f' (+{len(all_missing_cols) - 8} more)'
+            st.error(
+                f'Found {len(all_missing_cols)} feature column(s) with all values missing: {preview}{more}. '
+                'Drop these columns or adjust preprocessing before training.'
+            )
+            return
+    except Exception:
+        pass
+
+    # Quality warning: high-cardinality categoricals can explode feature space.
+    try:
+        feature_df = df_after.drop(columns=[target_col])
+        high_card_after = detect_high_cardinality(feature_df)
+        if high_card_after:
+            preview = ', '.join([str(c) for c in high_card_after[:8]])
+            more = '' if len(high_card_after) <= 8 else f' (+{len(high_card_after) - 8} more)'
+            st.warning(
+                f'High-cardinality categorical feature(s) detected after preprocessing: {preview}{more}. '
+                'Consider ordinal encoding or dropping ID-like columns.'
             )
     except Exception:
         pass

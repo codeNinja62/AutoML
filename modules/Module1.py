@@ -66,6 +66,16 @@ def get_constant_columns(df: pd.DataFrame, *, exclude: list[Any] | None = None) 
     return [col for col, n in nunique_all.items() if int(n) <= 1]
 
 
+def get_all_missing_columns(df: pd.DataFrame, *, exclude: list[Any] | None = None) -> list[Any]:
+    """Return columns where every value is missing (all-NaN)."""
+    if exclude is None:
+        exclude = []
+    candidates = [c for c in df.columns if c not in set(exclude)]
+    if not candidates:
+        return []
+    return [c for c in candidates if bool(df[c].isna().all())]
+
+
 def get_cardinality_buckets(
     df: pd.DataFrame,
     dropna: bool = True,

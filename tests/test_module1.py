@@ -4,6 +4,7 @@ import pandas as pd
 
 from project.modules.Module1 import (
     get_cardinality_buckets,
+    get_all_missing_columns,
     get_constant_columns,
     get_dataset_profile,
     get_dataset_schema,
@@ -78,6 +79,16 @@ class TestModule1(unittest.TestCase):
 
         const2 = get_constant_columns(df, exclude=["a"])
         self.assertNotIn("a", const2)
+
+    def test_all_missing_columns(self):
+        df = pd.DataFrame({"a": [None, None], "b": [1, None], "c": ["x", "y"]})
+        all_missing = get_all_missing_columns(df)
+        self.assertIn("a", all_missing)
+        self.assertNotIn("b", all_missing)
+        self.assertNotIn("c", all_missing)
+
+        all_missing2 = get_all_missing_columns(df, exclude=["a"])
+        self.assertNotIn("a", all_missing2)
 
 
 if __name__ == "__main__":
