@@ -1,0 +1,285 @@
+FINAL CONSOLIDATED REQUIREMENT DOCUMENT
+AutoML System for Automated Machine Learning Pipeline
+
+Document Date: December 06, 2025
+Version: 9.0
+Status: Final Submission
+
+Submitted to:
+Iram Tariq Bhatti
+Dr. Syed Imran Ali
+
+Submitted By:
+Team Members:
+Name	Qalam ID
+Sameer Ahmed	467192
+Abdul Moiz	464265
+Khubaib Ahmed	467487
+____________________________________________________________________________
+ 
+SECTION 1: Problem Statement & System Purpose
+1.1 Core Purpose
+To speed up repetitive tasks such as EDA, data preprocessing, and hyper-parameter optimization.
+1.2 Intended Users
+Data Scientists: To speed up their workflow by automating the 'grunt work' of data cleaning and initial visualization, allowing them to retain focus on advanced feature engineering.
+Software Developers: To build and deploy machine learning models for their application without needing deep expertise in complex algorithms or mathematics.
+ML Engineers: To quickly benchmark new datasets against standard algorithms to establish baseline performance metrics.
+1.3 Problem Statement
+The traditional ML workflow is time-consuming, repetitive, and requires expertise for tasks like EDA, feature engineering, and model selection. This system solves the problem of slow and manual ML pipeline development process by automating and accelerating these standard processes.
+1.4 Scope of Automation
+Automated Tasks: Generating the initial EDA report, detecting data issues (missing values, outliers, imbalance), and training/optimizing multiple machine learning models (UC-03, UC-04, UC-07).
+User Approval Required: Selecting the dataset to upload (UC-01), reviewing and confirming suggested fixes for data issues (UC-05, a key decision point), and configuring the training parameters (e.g., train/test split, target variable) (UC-06).
+
+ 
+______________________________________________________________________________
+SECTION 2: System Modules and Subfunctions
+2.1 Module Overview
+Module 1: Dataset Upload and Basic Information
+Subfunctions:
+•	Upload CSV file
+•	Show number of rows/columns
+•	Display column types
+•	Show summary statistics
+•	Display class distribution
+Module 2: Automated Exploratory Data Analysis (EDA)
+Subfunctions:
+•	Missing value analysis
+•	Outlier detection (IQR / Z-score)
+•	Correlation matrix
+•	Numerical feature distributions
+•	Categorical feature bar plots
+•	Train/test split summary
+Module 3: Issue Detection and User Approval
+Subfunctions:
+•	Detect missing values
+•	Detect outliers
+•	Detect class imbalance
+•	Detect high-cardinality categorical features
+•	Detect constant/near-constant features
+•	Show warnings and suggest fixes
+•	Ask user confirmation before applying fixes
+Module 4: Preprocessing
+Subfunctions:
+•	Missing value handling (mean/median/mode/constant)
+•	Outlier handling if needed
+•	Scaling
+•	Encoding categorical variables (One-Hot/Ordinal)
+•	Train-test split based on user ratio
+Module 5: Model Training and Hyperparameter Optimization
+Subfunctions:
+•	Train multiple classifiers (LR, KNN, DT, NB, RF, SVM, Rule-based)
+•	Apply Grid Search or Randomized Search
+•	Evaluate models using accuracy, precision, recall, F1, ROC-AUC
+•	Generate confusion matrix
+•	Track training time
+Module 6: Model Comparison Dashboard
+Subfunctions:
+•	Show comparison table of metrics
+•	Rank algorithms by chosen metric
+•	Allow CSV download of results
+•	Visualize metrics using bar charts
+Module 7: Auto-Generated Final Report
+Subfunctions:
+•	Dataset overview
+•	EDA results
+•	Issues detected
+•	Preprocessing decisions
+•	Model settings and hyperparameters
+•	Comparison tables
+•	Best model explanation
+•	Export as PDF/Markdown
+Module 8: Streamlit Deployment Module
+Subfunctions:
+•	Streamlit UI integration
+•	Proper requirements.txt
+•	Public hosting on Streamlit Cloud
+•	README with instructions and app link
+
+
+ 
+______________________________________________________________________________
+SECTION 3: Use Case Inventory
+3.1 Actors
+Primary Actors:
+•	End User: The human operator (Data Scientist, Developer, Student) who uploads data and makes configuration decisions.
+•	System: The AutoML backend (Python/Streamlit) that processes data, trains models, and generates visualizations.
+3.2 Use Case List
+ID	Name	Actor	Description
+UC-01	Upload Dataset	End User	User selects and uploads a CSV file; System validates format and size.
+UC-02	View Data Summary	End User	User views basic metadata (rows, columns, types) and statistical descriptions.
+UC-03	Generate EDA Report	System	System automatically generates plots (correlation, distribution) and displays them to the user.
+UC-04	Detect Issues	System	System scans for missing values, outliers, and imbalances.
+UC-05	Resolve Data Issues	End User	User reviews detected issues (missing values, outliers) and selects handling strategies (Drop/Impute).
+UC-06	Configure Training	End User	User selects target variable, train/test split ratio, and specific algorithms to include/exclude.
+UC-07	Train Models	System	System executes training loops across selected algorithms using defined hyperparameters.
+UC-08	Compare Results	End User	User views a dashboard ranking models by accuracy/F1 score and analyzes confusion matrices.
+UC-09	Download Report	End User	User exports the final results, logs, or the best-performing model pipeline.
+3.3 Use Case Diagram
+ ______________________________________________________________________________
+SECTION 4: Functional Requirements (FR)
+4.1 Overview
+The following functional requirements define specific, verifiable behaviors the AutoML system must exhibit. Requirements are organized by module.
+4.2 Dataset Upload & Basic Info
+•	FR-1: System should let the user upload a CSV file (ideally under 50MB) and instantly tell them if the file is readable or not.
+•	FR-2: Right after upload, the system should show a quick 'health check' of the file, like number of columns, missing headers, and weird characters.
+•	FR-3: The system should show a mini dashboard with total rows, columns, numeric/categorical breakdown, etc.
+•	FR-4: The user should be able to preview the dataset without downloading it. At least 50-100 rows must be visible.
+•	FR-5: The system should also provide a 'shuffle preview' button that shows random rows so the user knows the data isn't accidentally sorted.
+•	FR-6: The system should allow the user to rename columns right inside the app (helpful if the CSV has ugly names like 'col__1').
+•	FR-7: Users should be able to remove columns they don't want (for example, ID numbers) before any analysis happens.
+•	FR-8: The system should show basic stats like min, max, average, and number of empty cells in one simple table.
+4.3 Automated EDA
+•	FR-9: The system should automatically point out missing values, and show them in a clear percentage-based bar chart.
+•	FR-10: Outliers should be found and displayed visually (like a boxplot), not just written in text.
+•	FR-11: The system should calculate correlations and show a heatmap that is actually readable (not tiny or blurry).
+•	FR-12: Numeric features should get histogram plots so the user can see if the data is skewed or normal.
+•	FR-13: Categorical features should get count plots showing which categories dominate.
+•	FR-14: If a column is 99% the same value, the system should warn the user that it's basically useless.
+•	FR-15: The system should automatically check if the dataset is balanced or not, especially for classification.
+•	FR-16: Before leaving the EDA section, users should get a one-page summary that tells them the 'main problems' with the data.
+4.4 Issue Detection & Confirmation
+•	FR-17: The system should suggest ways to fix missing values but never force anything without user approval.
+•	FR-18: The system should detect if outliers are extreme enough to cause trouble and suggest options (remove, cap, or ignore).
+•	FR-19: The system should warn if a categorical column has way too many unique values (high-cardinality problem).
+•	FR-20: Before applying any preprocessing, the system should show a 'before vs after' preview.
+•	FR-21: The user should have the option to undo any preprocessing step (in case they regret a choice).
+4.5 Preprocessing
+•	FR-22: The system should let users choose how to fill missing values (mean, median, mode, or a custom value).
+•	FR-23: For numeric features, users should be able to choose whether to scale or leave them as is.
+•	FR-24: For categorical features, the system should offer One-Hot, Ordinal, or 'auto-detect best encoder'.
+•	FR-25: The system should allow combining two columns to create a new feature (like Age/Income ratio).
+•	FR-26: The target column must be chosen manually by the user to avoid wrong assumptions.
+•	FR-27: The train/test split must be adjustable with a slider (e.g., 70/30, 80/20).
+•	FR-28: The system must show how many samples ended up in train and test sets.
+4.6 Model Training
+•	FR-29: The system should let the user pick which ML models to try (at least 6-7 basic ones).
+•	FR-30: Each model should be trained using the same split so comparisons are fair.
+•	FR-31: The training time for each model should be displayed so the user knows which model is slow or fast.
+•	FR-32: Basic hyperparameter tuning should be done (even if simple), like trying 3-5 variations.
+•	FR-33: The system should show performance metrics: accuracy, precision, recall, F1.
+•	FR-34: If it's a binary classification task, the system must generate an ROC curve.
+•	FR-35: Confusion matrices should be generated for every model and should be easy to understand (proper labels).
+•	FR-36: If the model completely fails (like SVM not converging), the system should show a gentle warning instead of crashing.
+ 
+4.7 Comparison & Reporting
+•	FR-37: The system should sort models by best performance metric selected by the user.
+•	FR-38: A comparison table should highlight the best model (maybe with a green check or star).
+•	FR-39: The user should be able to download all model results in a CSV or Excel format.
+•	FR-40: A simple bar chart comparing all model scores should be shown.
+•	FR-41: The system should allow exporting the 'winning model' as a pickle file (if applicable).
+•	FR-42: After everything is done, the system should generate a final report that includes: Dataset summary, EDA visuals, Issues detected, Preprocessing steps used, All model results, Best model summary.
+•	FR-43: The final report should be downloadable as PDF or Markdown.
+•	FR-44: The report should mention all hyperparameters used for each model.
+•	FR-45: The user should be able to regenerate the report anytime without running the models again.
+ 
+______________________________________________________________________________
+SECTION 5: Non-Functional Requirements (NFR)
+5.1 Overview
+Non-functional requirements define quality attributes and constraints that govern system operation and maintenance.
+5.2 Performance Requirements
+•	NFR-P1: The system must validate and load a CSV file upto 50MB within 5 seconds.
+•	NFR-P2: Automated EDA generation (plots and stats) must complete within 15 seconds for datasets under 10,000 rows.
+•	NFR-P3: The model training phase for basic algorithms (LR, NB, DT) should not exceed 2 minutes for standard datasets.
+ 
+5.3 Reliability Requirements
+•	NFR-R1: The system must gracefully handle empty or corrupt CSV files by displaying a 'File Read Error' rather than crashing.
+•	NFR-R2: If a specific algorithm fails (e.g., non-convergence), the system must log the error and proceed to next algorithm without stopping the entire pipeline.
+•	NFR-R3: The system must retain the user's uploaded data state if the browser tab is refreshed (using session state).
+5.4 Usability Requirements
+•	NFR-U1: The interface must be built using Streamlit and be responsive to different screen sizes (Laptop vs. Monitor).
+•	NFR-U2: All statistical terms (e.g., 'Kurtosis', 'F1-Score') must have tooltips or brief explanations for non-expert users.
+•	NFR-U3: The system must provide a progress bar or spinner for any background task lasting longer than 1 second.
+5.5 Security Requirements
+•	NFR-S1: User data must be processed in-memory and not permanently stored on the server disk; all data is cleared when the session ends.
+•	NFR-S2: Input fields (e.g., column renaming) must be sanitized to prevent code injection or script execution (prevent XSS).
+5.6 Portability Requirements
+•	NFR-PO1: The application must be deployable on Streamlit Cloud without modification.
+•	NFR-PO2: The system must be compatible with any OS (Windows, Linux, MacOS) that supports Python 3.8+.
+ 
+5.7 Maintainability Requirements
+•	NFR-M1: The code must be modular: Data Loading, EDA, Preprocessing, and Training must be in separate Python files/modules.
+•	NFR-M2: A requirements.txt file must be maintained with pinned versions for all dependencies (pandas, scikit-learn, streamlit).
+•	NFR-M3: All functions must have docstrings following standard Python documentation conventions.
+______________________________________________________________________________
+SECTION 6: User Stories & Acceptance Criteria
+6.1 Overview
+User stories capture end-user needs in natural language. Each story includes specific, testable acceptance criteria.
+6.2 User Story 1: Preview Dataset
+Story: As a user, I want to quickly preview the first few rows of my uploaded dataset so that I can confirm the file loaded correctly.
+Acceptance Criteria:
+•	A table showing the first 5-10 rows appears automatically after upload.
+•	If the dataset cannot be read, a clear error message is shown.
+•	The preview updates instantly when a new file is uploaded.
+6.3 User Story 2: Choose Preprocessing Options
+Story: As a user, I want to select how missing values and outliers are handled so that I have control over the preprocessing steps.
+Acceptance Criteria:
+•	Users can choose from multiple imputation options (mean, median, mode, constant).
+•	Outlier handling options (remove, cap, or ignore) are available.
+•	The selected choices are clearly shown before processing begins.
+•	The system must not apply any preprocessing unless the user confirms.
+6.4 User Story 3: Compare Trained Models
+Story: As a user, I want to see all model results side by side so that I can easily identify which model performs best.
+Acceptance Criteria:
+•	A comparison table shows accuracy, precision, recall, and F1-score for all models.
+•	Metrics must be sorted or ranked by the main performance measure.
+•	A bar chart visually compares model performance.
+•	The user can download the comparison as a CSV file.
+6.5 User Story 4: Choose Train-Test Split
+Story: As a user, I want to set my own train-test ratio so that I can test how the split affects performance.
+Acceptance Criteria:
+•	User can select a split value (e.g., 70/30, 80/20, 90/10).
+•	Default split is set to 80/20.
+•	A summary clearly shows how many samples end up in each set.
+•	The system prevents invalid ratios (e.g., 0% training).
+6.6 User Story 5: View Confusion Matrix
+Story: As a user, I want to view confusion matrices of the trained models so that I can understand their prediction mistakes.
+Acceptance Criteria:
+•	A confusion matrix is generated for every trained classifier.
+•	Matrices must be displayed in a clear and readable format.
+•	Confusion matrix updates automatically when preprocessing or split settings change.
+•	If the task is multiclass, the matrix must support more than two classes.
+______________________________________________________________________________
+SECTION 7: MoSCoW Requirement Prioritization
+7.1 Overview
+MoSCoW analysis categorizes requirements by priority:
+•	MUST HAVE: Critical for minimum viable product
+•	SHOULD HAVE: Important but not vital
+•	COULD HAVE: Desirable if resources permit
+•	WON'T HAVE: Explicitly out of scope
+7.2 MUST HAVE
+Feature/Requirement	Justification
+Upload CSV file	No data = no ML = no project.
+Show dataset basics (rows, columns, types)	User needs to know what they uploaded.
+Detect missing values	Basic step for any ML workflow.
+Preprocessing options (impute, encode, scale)	ML models won't work properly without this.
+Train/test split	Needed to train and evaluate models.
+Train main ML models (LR, RF, KNN, NB, etc.)	Core 'AutoML' part.
+Show accuracy, precision, recall, F1	Without metrics we can't compare models.
+Comparison table for all models	Helps decide which model is best.
+Basic error handling (bad file, wrong format)	Stops app from crashing.
+7.3 SHOULD HAVE
+Feature/Requirement	Justification
+Correlation heatmap	Helpful for EDA but not mandatory.
+Histograms & bar charts	Makes EDA easier to understand.
+Outlier detection + visuals	Good to have, not essential.
+ROC curve	Useful for binary classification.
+Confusion matrix	Helps understand mistakes.
+Download model results (CSV)	Makes it easier for users to save work.
+Training time display	Nice info, not required.
+7.4 COULD HAVE
+Feature/Requirement	Justification
+Dark mode / theme switch	Just for looks.
+Auto-suggest preprocessing	Cool but tricky.
+Auto-pick 'best model'	System can do this, but not mandatory.
+Fancy PDF templates	Pure aesthetics.
+Undo any preprocessing step	Helpful but not essential.
+Save multiple projects	Out of scope for simple version.
+7.5 WON'T HAVE
+Feature/Requirement	Justification
+Deep learning models	Too heavy for Streamlit + tabular data.
+GPU or distributed training	Not needed for our datasets.
+Real-time dashboards	Overkill for offline CSV files.
+Integration with cloud (AWS, GCP, etc.)	Too advanced for current project scope.
+Auto feature engineering	Complex + unpredictable results.
+____________________________________________________________________________
+
