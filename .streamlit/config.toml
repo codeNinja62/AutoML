@@ -1,0 +1,14 @@
+[theme]
+# Light theme (default)
+primaryColor = "#2563EB"
+backgroundColor = "#F9FAFB"
+secondaryBackgroundColor = "#FFFFFF"
+textColor = "#111827"
+font = "sans serif"
+
+# Uncomment to force dark theme by default
+# base = "dark"
+# primaryColor = "#60A5FA"
+# backgroundColor = "#0B1220"
+# secondaryBackgroundColor = "#1F2937"
+# textColor = "#E5E7EB"

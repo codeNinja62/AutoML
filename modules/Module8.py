@@ -72,6 +72,45 @@ class PreprocessChoices:
     outlier_method: str
 
 
+def _init_visual_style() -> None:
+    """Initialize visual styles: theme-friendly charts and minimal CSS polish."""
+    try:
+        import matplotlib.pyplot as plt
+        import seaborn as sns
+
+        # Seaborn theme with readable grids and fonts
+        sns.set_theme(style="whitegrid")
+        # Accessible, consistent color cycle (matplotlib default categorical)
+        plt.rcParams["axes.prop_cycle"] = plt.cycler(
+            color=[
+                "#1F77B4", "#FF7F0E", "#2CA02C", "#D62728", "#9467BD",
+                "#8C564B", "#E377C2", "#7F7F7F", "#BCBD22", "#17BECF",
+            ]
+        )
+        # Prefer perceptually uniform colormaps
+        plt.rcParams["image.cmap"] = "viridis"
+        plt.rcParams["figure.figsize"] = (6, 4)
+        plt.rcParams["axes.titleweight"] = "600"
+        plt.rcParams["axes.labelsize"] = 11
+        plt.rcParams["xtick.labelsize"] = 10
+        plt.rcParams["ytick.labelsize"] = 10
+    except Exception:
+        pass
+
+    # Minimal CSS to refine buttons, metrics, and expander headings
+    st.markdown(
+        """
+        <style>
+        .stButton>button { background: var(--primary-color); color: white; border-radius: 6px; }
+        .stMetric { padding: 6px 8px; }
+        .st-emotion-cache-1v0mbdj { margin-top: 6px; }
+        .stExpanderHeader { font-weight: 600; }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def _format_ts(ts: float | None) -> str:
     if not ts:
         return '—'
@@ -193,6 +232,84 @@ def _render_basic_info(df: pd.DataFrame, target_col: str | None):
     if target_col:
         with st.expander('Class distribution', expanded=True):
             st.dataframe(get_class_distribution(df, target_col).rename('count'), use_container_width=True)
+
+
+def _render_eda_tabs(df: pd.DataFrame, *, target_col: Any, test_ratio: float) -> None:
+    """Organize EDA into tabs for better navigation and reduced scrolling."""
+    tabs = st.tabs([
+        'Summary', 'Missing', 'Correlation', 'Distributions', 'Outliers', 'Split'
+    ])
+
+    with tabs[0]:
+        st.markdown('**EDA summary (main problems)**')
+        _render_eda_summary(df, target_col)
+
+    with tabs[1]:
+        missing_df = missing_value_analysis(df)
+        st.pyplot(plot_missing_values(missing_df), clear_figure=True)
+        if not missing_df.empty:
+            st.dataframe(missing_df, use_container_width=True)
+
+    with tabs[2]:
+        corr_df = correlation_matrix(df)
+        st.pyplot(plot_correlation_heatmap(corr_df), clear_figure=True)
+
+    with tabs[3]:
+        numeric_cols = df.select_dtypes(include='number').columns.tolist()
+        cat_cols = [c for c in df.columns if c not in numeric_cols]
+        st.markdown('**Distributions**')
+        c1, c2 = st.columns(2)
+        with c1:
+            if numeric_cols:
+                num_choice = st.selectbox('Numeric feature', options=numeric_cols, key='eda_num_choice')
+                st.pyplot(plot_numerical_distribution(df, num_choice), clear_figure=True)
+            else:
+                st.info('No numeric features found.')
+        with c2:
+            if cat_cols:
+                cat_choice = st.selectbox('Categorical feature', options=cat_cols, key='eda_cat_choice')
+                st.pyplot(plot_categorical_distribution(df, cat_choice), clear_figure=True)
+            else:
+                st.info('No categorical features found.')
+
+    with tabs[4]:
+        numeric_cols = df.select_dtypes(include='number').columns.tolist()
+        if numeric_cols:
+            iqr_df = outlier_summary_iqr(df)
+            z_df = outlier_summary_zscore(df, threshold=3.0)
+            st.markdown('**IQR rule (1.5×IQR)**')
+            st.pyplot(plot_outlier_counts(iqr_df, title='Outliers (%) by feature — IQR'), clear_figure=True)
+            if not iqr_df.empty:
+                st.dataframe(iqr_df[['column', 'outlier_count', 'outlier_pct']], use_container_width=True)
+            else:
+                st.info('No IQR outliers detected in numeric features.')
+
+            st.markdown('**Z-score (|z| > 3.0)**')
+            st.pyplot(plot_outlier_counts(z_df, title='Outliers (%) by feature — Z-score'), clear_figure=True)
+            if not z_df.empty:
+                st.dataframe(z_df[['column', 'outlier_count', 'outlier_pct']], use_container_width=True)
+            else:
+                st.info('No Z-score outliers detected in numeric features.')
+        else:
+            st.info('No numeric features found.')
+
+    with tabs[5]:
+        try:
+            summary = train_test_split_summary(df, target_col=target_col, test_size=float(test_ratio))
+            c1, c2, c3 = st.columns(3)
+            c1.metric('Train rows', int(summary['train_rows']))
+            c2.metric('Test rows', int(summary['test_rows']))
+            c3.metric('Features (X)', int(summary['n_features']))
+            st.caption('Stratified split summary (same split logic used for training).')
+            st.dataframe(
+                pd.DataFrame({
+                    'train': pd.Series(summary['train_class_counts']),
+                    'test': pd.Series(summary['test_class_counts']),
+                }).fillna(0).astype(int),
+                use_container_width=True,
+            )
+        except Exception as e:
+            st.warning(f'Unable to compute a stratified split summary: {e}')
 
 
 def _render_preview_tools(df: pd.DataFrame) -> pd.DataFrame:
@@ -748,7 +865,18 @@ def _metric_to_sklearn_scoring(metric: str, is_binary: bool) -> str:
 
 
 def main():
-    st.set_page_config(page_title='AutoML Classification (CS-245)', layout='wide')
+    st.set_page_config(
+        page_title='AutoML Classification (CS-245)',
+        page_icon='📊',
+        layout='wide',
+        initial_sidebar_state='expanded',
+        menu_items={
+            'Get Help': 'https://docs.streamlit.io',
+            'Report a bug': 'https://github.com/codeNinja62/AutoML/issues',
+            'About': 'An educational AutoML app for CS-245',
+        },
+    )
+    _init_visual_style()
     st.title('AutoML System for Classification')
     st.caption('Upload → understand → approve preprocessing → train/tune → compare → export')
 
@@ -978,8 +1106,7 @@ def main():
 
     st.divider()
     _section(3, 'Understand dataset (EDA)', 'Automated charts and a one-page summary of key issues.')
-    _render_eda_summary(df, target_col)
-    _render_eda(df, target_col=target_col, test_ratio=float(test_ratio))
+    _render_eda_tabs(df, target_col=target_col, test_ratio=float(test_ratio))
 
     st.divider()
     _section(4, 'Approve preprocessing', 'Review detected issues and confirm preprocessing decisions.')
