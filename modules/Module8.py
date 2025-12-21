@@ -77,11 +77,12 @@ def _init_visual_style() -> None:
     try:
         import matplotlib.pyplot as plt
         import seaborn as sns
+        from cycler import cycler
 
         # Seaborn theme with readable grids and fonts
         sns.set_theme(style="whitegrid")
         # Accessible, consistent color cycle (matplotlib default categorical)
-        plt.rcParams["axes.prop_cycle"] = plt.cycler(
+        plt.rcParams["axes.prop_cycle"] = cycler(
             color=[
                 "#1F77B4", "#FF7F0E", "#2CA02C", "#D62728", "#9467BD",
                 "#8C564B", "#E377C2", "#7F7F7F", "#BCBD22", "#17BECF",
@@ -97,18 +98,60 @@ def _init_visual_style() -> None:
     except Exception:
         pass
 
-    # Minimal CSS to refine buttons, metrics, and expander headings
-    st.markdown(
-        """
-        <style>
-        .stButton>button { background: var(--primary-color); color: white; border-radius: 6px; }
-        .stMetric { padding: 6px 8px; }
-        .st-emotion-cache-1v0mbdj { margin-top: 6px; }
-        .stExpanderHeader { font-weight: 600; }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
+        # Accessible CSS to improve button contrast, focus, and disabled states
+        st.markdown(
+                """
+                <style>
+                :root {
+                    --btn-primary-bg: #1E3A8A; /* strong contrast against white text */
+                    --btn-primary-text: #FFFFFF;
+                    --btn-primary-hover: #173B82;
+                    --btn-focus: #0EA5E9; /* cyan focus ring */
+                      --btn-disabled-bg: #6B7280; /* gray-500 */
+                      --btn-disabled-text: #FFFFFF; /* keep readable on gray */
+                }
+
+                .stButton>button, .stDownloadButton>button {
+                    background: var(--btn-primary-bg) !important;
+                    color: var(--btn-primary-text) !important;
+                    border: 1px solid rgba(255,255,255,0.85);
+                    border-radius: 6px;
+                    font-weight: 600;
+                    letter-spacing: 0.02em;
+                    padding: 0.5rem 0.9rem;
+                    box-shadow: 0 1px 2px rgba(0,0,0,0.15);
+                }
+                .stButton>button:hover, .stDownloadButton>button:hover {
+                    background: var(--btn-primary-hover) !important;
+                }
+                .stButton>button:focus-visible, .stDownloadButton>button:focus-visible {
+                    outline: 2px solid var(--btn-focus);
+                    outline-offset: 2px;
+                }
+                .stButton>button:disabled, .stDownloadButton>button:disabled {
+                    background: var(--btn-disabled-bg) !important;
+                    color: var(--btn-disabled-text) !important;
+                    border: 1px solid rgba(0,0,0,0.25);
+                    box-shadow: none;
+                }
+
+                /* Consistent sizing */
+                .stMetric {
+                    padding: 8px 12px;
+                    min-height: 80px;
+                }
+                .stMetric label { font-size: 0.85rem !important; }
+                .stMetric [data-testid="stMetricValue"] { font-size: 1.25rem !important; }
+                .stExpanderHeader { font-weight: 600; }
+                [data-testid="stExpander"] { margin-bottom: 0.75rem; }
+                .stButton>button, .stDownloadButton>button {
+                    min-width: 140px;
+                    min-height: 38px;
+                }
+                </style>
+                """,
+                unsafe_allow_html=True,
+        )
 
 
 def _format_ts(ts: float | None) -> str:
@@ -296,10 +339,11 @@ def _render_eda_tabs(df: pd.DataFrame, *, target_col: Any, test_ratio: float) ->
     with tabs[5]:
         try:
             summary = train_test_split_summary(df, target_col=target_col, test_size=float(test_ratio))
-            c1, c2, c3 = st.columns(3)
+            c1, c2, c3, c4 = st.columns(4)
             c1.metric('Train rows', int(summary['train_rows']))
             c2.metric('Test rows', int(summary['test_rows']))
-            c3.metric('Features (X)', int(summary['n_features']))
+            c3.metric('Features', int(summary['n_features']))
+            c4.metric('Test ratio', f"{test_ratio:.0%}")
             st.caption('Stratified split summary (same split logic used for training).')
             st.dataframe(
                 pd.DataFrame({
@@ -416,15 +460,16 @@ def _render_eda_summary(df: pd.DataFrame, target_col: str):
     out_z = issues.get('outliers_zscore', {})
     st.markdown('**EDA summary (main problems)**')
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric('Columns w/ missing', missing_cols)
-    c2.metric('Total missing cells', total_missing)
-    c3.metric('Outlier cols (IQR)', len(out_iqr) if isinstance(out_iqr, dict) else 0)
-    c4.metric('High-cardinality', len(issues.get('high_cardinality', [])) if isinstance(issues.get('high_cardinality', []), list) else 0)
+    c1.metric('Cols w/ missing', missing_cols)
+    c2.metric('Total missing', total_missing)
+    c3.metric('Outliers (IQR)', len(out_iqr) if isinstance(out_iqr, dict) else 0)
+    c4.metric('Outliers (Z)', len(out_z) if isinstance(out_z, dict) else 0)
 
-    c5, c6, c7 = st.columns(3)
-    c5.metric('Outlier cols (Z-score)', len(out_z) if isinstance(out_z, dict) else 0)
-    c6.metric('Constant/near-constant', len(issues.get('constant_features', [])) if isinstance(issues.get('constant_features', []), list) else 0)
+    c5, c6, c7, c8 = st.columns(4)
+    c5.metric('High-cardinality', len(issues.get('high_cardinality', [])) if isinstance(issues.get('high_cardinality', []), list) else 0)
+    c6.metric('Constant cols', len(issues.get('constant_features', [])) if isinstance(issues.get('constant_features', []), list) else 0)
     c7.metric('Class imbalance', 'Yes' if 'class_imbalance' in issues else 'No')
+    c8.metric('', '')  # placeholder for alignment
 
 
 def _render_eda(df: pd.DataFrame, *, target_col: Any, test_ratio: float):
@@ -491,10 +536,11 @@ def _render_eda(df: pd.DataFrame, *, target_col: Any, test_ratio: float):
     with st.expander('Train/test split summary', expanded=False):
         try:
             summary = train_test_split_summary(df, target_col=target_col, test_size=float(test_ratio))
-            c1, c2, c3 = st.columns(3)
+            c1, c2, c3, c4 = st.columns(4)
             c1.metric('Train rows', int(summary['train_rows']))
             c2.metric('Test rows', int(summary['test_rows']))
-            c3.metric('Features (X)', int(summary['n_features']))
+            c3.metric('Features', int(summary['n_features']))
+            c4.metric('Test ratio', f"{test_ratio:.0%}")
 
             st.caption('Stratified split summary (same split logic used for training).')
             st.dataframe(
@@ -982,13 +1028,13 @@ def main():
 
         c1, c2 = st.columns(2)
         with c1:
-            if st.button('Reset training results'):
+            if st.button('Reset Training', type='primary', use_container_width=True):
                 for k in ['trained_models', 'evaluation_results', 'best_model_name', 'last_training_ran_at']:
                     if k in st.session_state:
                         del st.session_state[k]
                 st.rerun()
         with c2:
-            if st.button('Reset preprocessing'):
+            if st.button('Reset Preprocessing', type='primary', use_container_width=True):
                 for k in ['preprocess_choices', 'preprocess_approved', 'last_preprocess_applied_at']:
                     if k in st.session_state:
                         del st.session_state[k]
@@ -998,7 +1044,7 @@ def main():
                         del st.session_state[k]
                 st.rerun()
 
-        if st.button('Reset session (start over)'):
+        if st.button('Reset Session', type='primary', use_container_width=True):
             for k in [
                 'uploaded_bytes', 'uploaded_name',
                 'raw_df', 'working_df', 'working_df_sig',
@@ -1018,9 +1064,10 @@ def main():
         st.info('Upload a CSV to start.')
         return
 
-    # FR-1 / NFR-P1: basic file-size validation
+    # FR-1 / NFR-P1: basic file-size validation (defensive against None)
     try:
-        if hasattr(uploaded, 'size') and uploaded.size is not None and uploaded.size > 50 * 1024 * 1024:
+        size_bytes = getattr(uploaded, 'size', None) if uploaded is not None else None
+        if size_bytes is not None and size_bytes > 50 * 1024 * 1024:
             st.error('File too large. Please upload a CSV under 50MB.')
             return
     except Exception:
@@ -1182,8 +1229,8 @@ def main():
         c1, c2, c3, c4 = st.columns(4)
         c1.metric('Train samples', int(len(X_train)))
         c2.metric('Test samples', int(len(X_test)))
-        c3.metric('Train ratio', float(1 - test_ratio))
-        c4.metric('Test ratio', float(test_ratio))
+        c3.metric('Train ratio', f"{1 - test_ratio:.0%}")
+        c4.metric('Test ratio', f"{test_ratio:.0%}")
     except Exception as e:
         st.error(f'Unable to split dataset (stratified): {e}')
         hint = _split_feasibility_hint(df_after, target_col, float(test_ratio))
@@ -1198,26 +1245,28 @@ def main():
             rec = hint.get('recommended_test_ratio')
             if rec is not None:
                 st.caption(f"Suggested test ratio (feasible minimum): {rec:.2f}")
-                c1, c2, c3 = st.columns(3)
+                c1, c2, c3, c4 = st.columns(4)
                 with c1:
-                    if st.button(f'Set test ratio to {rec:.2f} and retry'):
+                    if st.button(f'Set test ratio to {rec:.2f}', type='primary'):
                         cfg2 = dict(st.session_state.get('train_cfg', {}))
                         cfg2['test_ratio'] = float(rec)
                         st.session_state['train_cfg'] = cfg2
                         st.rerun()
                 with c2:
-                    if st.button('Set CV folds to 2 and retry'):
+                    if st.button('Set CV folds to 2', type='primary'):
                         cfg2 = dict(st.session_state.get('train_cfg', {}))
                         cfg2['cv'] = 2
                         st.session_state['train_cfg'] = cfg2
                         st.rerun()
                 with c3:
-                    if st.button('Apply recommended split fix'):
+                    if st.button('Apply recommended fix', type='primary'):
                         cfg2 = dict(st.session_state.get('train_cfg', {}))
                         cfg2['test_ratio'] = float(rec)
                         cfg2['cv'] = 2
                         st.session_state['train_cfg'] = cfg2
                         st.rerun()
+                with c4:
+                    st.write('')  # placeholder for alignment
             else:
                 st.info('Try increasing dataset size or reducing number of classes (merge rare classes) so stratification is possible.')
 
@@ -1306,14 +1355,14 @@ def main():
                 st.caption('These models failed during training or evaluation. Fix the issue, then retrain.')
                 c1, c2, c3, c4 = st.columns(4)
                 with c1:
-                    if st.button('Retrain baseline only', key='fm_retrain_baseline'):
+                    if st.button('Retrain baseline', key='fm_retrain_baseline', type='primary'):
                         st.session_state['selected_models'] = ['Rule-based (Most Frequent)']
                         for k in ['trained_models', 'evaluation_results', 'best_model_name', 'last_training_ran_at']:
                             if k in st.session_state:
                                 del st.session_state[k]
                         st.rerun()
                 with c2:
-                    if st.button('Retrain with CV=2', key='fm_retrain_cv2'):
+                    if st.button('Retrain CV=2', key='fm_retrain_cv2', type='primary'):
                         cfg2 = dict(st.session_state.get('train_cfg', {}))
                         cfg2['cv'] = 2
                         st.session_state['train_cfg'] = cfg2
@@ -1322,7 +1371,7 @@ def main():
                                 del st.session_state[k]
                         st.rerun()
                 with c3:
-                    if st.button('Retrain with grid search', key='fm_retrain_grid'):
+                    if st.button('Retrain grid', key='fm_retrain_grid', type='primary'):
                         cfg2 = dict(st.session_state.get('train_cfg', {}))
                         cfg2['search_type'] = 'grid'
                         st.session_state['train_cfg'] = cfg2
@@ -1331,7 +1380,7 @@ def main():
                                 del st.session_state[k]
                         st.rerun()
                 with c4:
-                    if st.button('Clear results', key='fm_clear_results'):
+                    if st.button('Clear results', key='fm_clear_results', type='primary'):
                         for k in ['trained_models', 'evaluation_results', 'best_model_name', 'last_training_ran_at']:
                             if k in st.session_state:
                                 del st.session_state[k]
@@ -1376,7 +1425,7 @@ def main():
         with st.expander('Fix this (recommended actions)', expanded=True):
             c1, c2, c3, c4 = st.columns(4)
             with c1:
-                if st.button('Use baseline only'):
+                if st.button('Use baseline', type='primary'):
                     st.session_state['selected_models'] = ['Rule-based (Most Frequent)']
                     # Clear results so the user is prompted to retrain.
                     for k in ['trained_models', 'evaluation_results', 'best_model_name', 'last_training_ran_at']:
@@ -1384,7 +1433,7 @@ def main():
                             del st.session_state[k]
                     st.rerun()
             with c2:
-                if st.button('Switch search to grid'):
+                if st.button('Grid search', type='primary'):
                     cfg2 = dict(st.session_state.get('train_cfg', {}))
                     cfg2['search_type'] = 'grid'
                     st.session_state['train_cfg'] = cfg2
@@ -1393,7 +1442,7 @@ def main():
                             del st.session_state[k]
                     st.rerun()
             with c3:
-                if st.button('Set CV folds to 2'):
+                if st.button('CV=2', type='primary'):
                     cfg2 = dict(st.session_state.get('train_cfg', {}))
                     cfg2['cv'] = 2
                     st.session_state['train_cfg'] = cfg2
@@ -1402,7 +1451,7 @@ def main():
                             del st.session_state[k]
                     st.rerun()
             with c4:
-                if st.button('Safe quick config'):
+                if st.button('Safe quick', type='primary'):
                     # A conservative setup that often avoids errors/timeouts.
                     st.session_state['selected_models'] = ['Rule-based (Most Frequent)']
                     cfg2 = dict(st.session_state.get('train_cfg', {}))
@@ -1418,9 +1467,11 @@ def main():
         top_row = valid_ranked.iloc[0]
         c1, c2, c3, c4 = st.columns(4)
         c1.metric('Best model', str(best_name))
-        c2.metric(f'Best {primary_metric}', float(top_row[sort_metric]) if pd.notna(top_row[sort_metric]) else None)
-        c3.metric('ROC-AUC', float(top_row.get('roc_auc')) if pd.notna(top_row.get('roc_auc')) else None)
-        c4.metric('Train time (s)', float(top_row.get('training_time')) if pd.notna(top_row.get('training_time')) else None)
+        c2.metric(f'Best {primary_metric}', float(top_row[sort_metric]) if pd.notna(top_row[sort_metric]) else '—')
+        roc_val = top_row.get('roc_auc')
+        c3.metric('ROC-AUC', float(roc_val) if pd.notna(roc_val) else '—')
+        tt_val = top_row.get('training_time')
+        c4.metric('Train time (s)', float(tt_val) if pd.notna(tt_val) else '—')
 
         # Best-model callout with immediate download (so exports aren’t buried).
         best_model_obj = st.session_state.get('trained_models', {}).get(best_name, {}).get('model')
