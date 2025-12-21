@@ -918,7 +918,7 @@ def _metric_to_sklearn_scoring(metric: str, is_binary: bool) -> str:
 def main():
     st.set_page_config(
         page_title='AutoML Classification (CS-245)',
-        page_icon='📊',
+        page_icon='assets/logo.svg',
         layout='wide',
         initial_sidebar_state='expanded',
         menu_items={
@@ -928,10 +928,19 @@ def main():
         },
     )
     _init_visual_style()
+    
+    # Try to use st.logo if available (Streamlit 1.35+)
+    try:
+        st.logo("assets/logo.svg")
+    except AttributeError:
+        pass
+
     st.title('AutoML System for Classification')
     st.caption('Upload → understand → approve preprocessing → train/tune → compare → export')
 
     with st.sidebar:
+        # Fallback or additional branding in sidebar
+        st.image('assets/logo.svg', width=120)
         st.header('Configuration')
         st.caption('Tip: adjust settings → apply → then train.')
 
