@@ -20,7 +20,7 @@ from sklearn.metrics import roc_curve
 
 from sklearn.pipeline import Pipeline
 
-from project.modules.Module1 import (
+from modules.Module1 import (
     get_cardinality_buckets,
     get_class_distribution,
     get_column_types,
@@ -32,7 +32,7 @@ from project.modules.Module1 import (
     infer_target_candidates,
     validate_target_column,
 )
-from project.modules.Module2 import (
+from modules.Module2 import (
     correlation_matrix,
     missing_value_analysis,
     outlier_summary_iqr,
@@ -45,7 +45,7 @@ from project.modules.Module2 import (
     plot_outlier_boxplot,
     train_test_split_summary,
 )
-from project.modules.Module3 import (
+from modules.Module3 import (
     detect_issues,
     detect_class_imbalance,
     detect_constant_features,
@@ -54,10 +54,10 @@ from project.modules.Module3 import (
     detect_outliers_iqr,
     detect_outliers_zscore,
 )
-from project.modules.Module4 import apply_outlier_handling, build_preprocessor, split_train_test_stratified
-from project.modules.Module5 import evaluate_models, train_and_optimize_models
-from project.modules.Module6 import plot_metric_bars, rank_algorithms, show_comparison_table
-from project.modules.Module7 import generate_dataset_overview, export_report_as_markdown_bytes, export_report_as_pdf_bytes
+from modules.Module4 import apply_outlier_handling, build_preprocessor, split_train_test_stratified
+from modules.Module5 import evaluate_models, train_and_optimize_models
+from modules.Module6 import plot_metric_bars, rank_algorithms, show_comparison_table
+from modules.Module7 import generate_dataset_overview, export_report_as_markdown_bytes, export_report_as_pdf_bytes
 
 
 @dataclass
