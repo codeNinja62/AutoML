@@ -146,7 +146,12 @@ def _init_visual_style() -> None:
                 [data-testid="stExpander"] { margin-bottom: 0.75rem; }
                 .stButton>button, .stDownloadButton>button {
                     min-width: 140px;
-                    min-height: 38px;
+                    min-height: 42px;
+                    height: 42px;
+                    line-height: 1.2;
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
                 }
                 </style>
                 """,
