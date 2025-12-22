@@ -118,3 +118,40 @@ def plot_metric_bars(comparison_df: pd.DataFrame, metric: str):
     ax.tick_params(axis='x', rotation=45)
     fig.tight_layout()
     return fig
+
+
+def plot_decision_tree_viz(pipeline, feature_names=None, class_names=None, max_depth=3):
+    """
+    Plot the decision tree from a fitted pipeline (if the final step is a decision tree).
+    
+    Parameters:
+    pipeline: Fitted sklearn Pipeline.
+    feature_names (list): List of feature names (optional).
+    class_names (list): List of class names (optional).
+    max_depth (int): Maximum depth to display to keep the plot readable.
+    """
+    from sklearn.tree import plot_tree, DecisionTreeClassifier
+    
+    if not hasattr(pipeline, 'steps'):
+        return None
+        
+    # Assume the last step is the classifier
+    classifier = pipeline.steps[-1][1]
+    
+    if not isinstance(classifier, DecisionTreeClassifier):
+        return None
+        
+    fig, ax = plt.subplots(figsize=(20, 10))
+    plot_tree(
+        classifier, 
+        max_depth=max_depth, 
+        feature_names=feature_names, 
+        class_names=class_names, 
+        filled=True, 
+        rounded=True, 
+        fontsize=10, 
+        ax=ax
+    )
+    ax.set_title(f"Decision Tree Visualization (Max Depth: {max_depth})")
+    fig.tight_layout()
+    return fig

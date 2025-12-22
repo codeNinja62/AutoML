@@ -315,6 +315,13 @@ def evaluate_models(models, X_test, y_test):
     classes = np.unique(y_test)
     is_binary = len(classes) == 2
     average = 'binary' if is_binary else 'weighted'
+    
+    # For binary classification with string labels, determine the positive label
+    # Convention: use the second label (alphabetically sorted) as positive
+    pos_label = None
+    if is_binary:
+        sorted_classes = sorted(classes, key=str)
+        pos_label = sorted_classes[1]  # e.g., 'Yes' when classes are ['No', 'Yes']
 
     for model_name, model_info in models.items():
         model = model_info.get('model')
@@ -339,9 +346,17 @@ def evaluate_models(models, X_test, y_test):
         try:
             y_pred = model.predict(X_test)
             accuracy = accuracy_score(y_test, y_pred)
-            precision = precision_score(y_test, y_pred, average=average, zero_division=0)
-            recall = recall_score(y_test, y_pred, average=average, zero_division=0)
-            f1 = f1_score(y_test, y_pred, average=average, zero_division=0)
+            
+            # For binary classification, pass pos_label; for multiclass, use weighted average
+            if is_binary and pos_label is not None:
+                precision = precision_score(y_test, y_pred, average=average, pos_label=pos_label, zero_division=0)
+                recall = recall_score(y_test, y_pred, average=average, pos_label=pos_label, zero_division=0)
+                f1 = f1_score(y_test, y_pred, average=average, pos_label=pos_label, zero_division=0)
+            else:
+                precision = precision_score(y_test, y_pred, average=average, zero_division=0)
+                recall = recall_score(y_test, y_pred, average=average, zero_division=0)
+                f1 = f1_score(y_test, y_pred, average=average, zero_division=0)
+            
             conf_matrix = confusion_matrix(y_test, y_pred)
 
             roc_auc = _compute_roc_auc(model, X_test, y_test)

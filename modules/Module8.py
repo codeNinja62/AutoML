@@ -56,8 +56,8 @@ from modules.Module3 import (
 )
 from modules.Module4 import apply_outlier_handling, build_preprocessor, split_train_test_stratified
 from modules.Module5 import evaluate_models, train_and_optimize_models
-from modules.Module6 import plot_metric_bars, rank_algorithms, show_comparison_table
-from modules.Module7 import generate_dataset_overview, export_report_as_markdown_bytes, export_report_as_pdf_bytes
+from modules.Module6 import plot_metric_bars, rank_algorithms, show_comparison_table, plot_decision_tree_viz
+from modules.Module7 import generate_dataset_overview, export_report_as_markdown_bytes, export_report_as_pdf_bytes, build_markdown_report
 
 
 @dataclass
@@ -463,7 +463,6 @@ def _render_eda_summary(df: pd.DataFrame, target_col: str):
     total_missing = int(df.isna().sum().sum())
     out_iqr = issues.get('outliers_iqr', {})
     out_z = issues.get('outliers_zscore', {})
-    st.markdown('**EDA summary (main problems)**')
     c1, c2, c3, c4 = st.columns(4)
     c1.metric('Cols w/ missing', missing_cols)
     c2.metric('Total missing', total_missing)
@@ -904,15 +903,47 @@ def _render_issue_detection_and_choices(df: pd.DataFrame, target_col: str) -> tu
     return before_df, choices, issues
 
 
-def _metric_to_sklearn_scoring(metric: str, is_binary: bool) -> str:
+def _metric_to_sklearn_scoring(metric: str, is_binary: bool, labels: list | None = None):
+    """Return a sklearn scorer suitable for cross-validation.
+    
+    For binary classification with non-numeric labels (e.g., 'Yes'/'No'),
+    we must use make_scorer with the correct pos_label to avoid errors.
+    """
+    from sklearn.metrics import make_scorer, f1_score, precision_score, recall_score
+    
     if metric == 'accuracy':
         return 'accuracy'
+    
+    # For multiclass, use weighted averaging (no pos_label needed)
+    if not is_binary:
+        if metric == 'precision':
+            return 'precision_weighted'
+        if metric == 'recall':
+            return 'recall_weighted'
+        return 'f1_weighted'
+    
+    # For binary classification, determine the positive label
+    # Convention: use the second label (alphabetically sorted) as positive
+    pos_label = None
+    if labels is not None and len(labels) == 2:
+        sorted_labels = sorted(labels, key=str)
+        pos_label = sorted_labels[1]  # e.g., 'Yes' when labels are ['No', 'Yes']
+    
+    # If pos_label is 1 (numeric), we can use the string scorer
+    if pos_label == 1 or pos_label is None:
+        if metric == 'precision':
+            return 'precision'
+        if metric == 'recall':
+            return 'recall'
+        return 'f1'
+    
+    # For string labels, create a custom scorer with the correct pos_label
     if metric == 'precision':
-        return 'precision' if is_binary else 'precision_weighted'
+        return make_scorer(precision_score, pos_label=pos_label, zero_division=0)
     if metric == 'recall':
-        return 'recall' if is_binary else 'recall_weighted'
+        return make_scorer(recall_score, pos_label=pos_label, zero_division=0)
     # default f1
-    return 'f1' if is_binary else 'f1_weighted'
+    return make_scorer(f1_score, pos_label=pos_label, zero_division=0)
 
 
 def main():
@@ -1081,8 +1112,8 @@ def main():
     # FR-1 / NFR-P1: basic file-size validation (defensive against None)
     try:
         size_bytes = getattr(uploaded, 'size', None) if uploaded is not None else None
-        if size_bytes is not None and size_bytes > 50 * 1024 * 1024:
-            st.error('File too large. Please upload a CSV under 50MB.')
+        if size_bytes is not None and size_bytes > 200 * 1024 * 1024:
+            st.error('File too large. Please upload a CSV under 200MB.')
             return
     except Exception:
         pass
@@ -1315,7 +1346,8 @@ def main():
         return
 
     is_binary = y_train.nunique() == 2
-    scoring = _metric_to_sklearn_scoring(primary_metric, is_binary=is_binary)
+    labels = list(y_train.unique()) if is_binary else None
+    scoring = _metric_to_sklearn_scoring(primary_metric, is_binary=is_binary, labels=labels)
 
     preprocessor = build_preprocessor(
         X_train,
@@ -1606,15 +1638,37 @@ def main():
 
         fig, ax = plt.subplots(figsize=(6, 4))
         ax.plot([0, 1], [0, 1], linestyle='--', label='Chance')
+        
+        # Determine positive label for ROC
+        pos_label = None
+        try:
+            uniques = sorted(y_test.unique())
+            if len(uniques) == 2:
+                pos_label = uniques[1]
+        except Exception:
+            pass
+
         plotted_any = False
+        eval_results = st.session_state.get('evaluation_results', {})
+
         for model_name, model_info in st.session_state.get('trained_models', {}).items():
             model = model_info.get('model')
             if model is None or not hasattr(model, 'predict_proba'):
                 continue
             try:
+                # model.classes_ are sorted, so index 1 is the 'positive' class in binary
+                # We trust that predict_proba column 1 corresponds to pos_label determined above
                 proba = model.predict_proba(X_test)[:, 1]
-                fpr, tpr, _ = roc_curve(y_test, proba)
-                ax.plot(fpr, tpr, label=model_name)
+                fpr, tpr, _ = roc_curve(y_test, proba, pos_label=pos_label)
+                
+                # Get AUC from evaluation results if available
+                auc_score = ""
+                if model_name in eval_results:
+                     score = eval_results[model_name].get('roc_auc')
+                     if score is not None:
+                         auc_score = f" (AUC = {score:.2f})"
+                
+                ax.plot(fpr, tpr, label=f"{model_name}{auc_score}")
                 plotted_any = True
             except Exception:
                 continue
@@ -1628,6 +1682,42 @@ def main():
         else:
             st.info('No ROC curves available (models may not support probabilities).')
 
+    # Visualize Decision Tree if available
+    dt_model_info = st.session_state.get('trained_models', {}).get('Decision Tree')
+    if dt_model_info:
+        st.subheader("Decision Tree Visualization")
+        pipeline = dt_model_info['model']
+        
+        try:
+            # Try to get feature names from the preprocessor
+            feature_names = None
+            if hasattr(pipeline, 'named_steps') and 'preprocessor' in pipeline.named_steps:
+                 preprocessor = pipeline.named_steps['preprocessor']
+                 if hasattr(preprocessor, 'get_feature_names_out'):
+                     feature_names = list(preprocessor.get_feature_names_out())
+            elif hasattr(pipeline, 'steps'):
+                 # Fallback: assume first step is preprocessor
+                 preprocessor = pipeline.steps[0][1]
+                 if hasattr(preprocessor, 'get_feature_names_out'):
+                     feature_names = list(preprocessor.get_feature_names_out())
+        except Exception:
+             feature_names = None
+
+        # Class names
+        class_names = None
+        try:
+            # Check the classifier step for classes_
+            classifier = pipeline.steps[-1][1]
+            if hasattr(classifier, 'classes_'):
+                class_names = [str(c) for c in classifier.classes_]
+        except Exception:
+            pass
+
+        fig_tree = plot_decision_tree_viz(pipeline, feature_names=feature_names, class_names=class_names, max_depth=3)
+        if fig_tree:
+             st.pyplot(fig_tree)
+             st.caption("Visualizing the top 3 levels of the trained Decision Tree.")
+
     st.divider()
     _section(6, 'Export & report', 'Download results, the report, and the best trained pipeline.')
     st.subheader('Auto-generated final report')
@@ -1635,6 +1725,15 @@ def main():
         st.success(f'Best model by {sort_metric}: {best_name}')
     else:
         st.warning('No successful models to select as best model.')
+
+    # Collect tuned hyperparameters for all models
+    trained_models = st.session_state.get('trained_models', {})
+    model_hyperparameters = {
+        name: info.get('best_params', 'default')
+        for name, info in trained_models.items()
+    }
+
+    best_model_info = trained_models.get(best_name, {}) if best_name else {}
 
     report_sections: dict[str, Any] = {
         'Dataset Overview': generate_dataset_overview(df_after),
@@ -1647,29 +1746,85 @@ def main():
         'Detected Issues': st.session_state.get('issues', {}),
         'Preprocessing Decisions': st.session_state.get('preprocess_choices', {}),
         'Model Comparison': comparison_df.reset_index(drop=True),
+        'Model Hyperparameters': model_hyperparameters,
         'Best Model Summary': {
             'best_model': best_name,
             'ranking_metric': sort_metric,
+            'test_score': best_model_info.get(sort_metric),
+            'hyperparameters': best_model_info.get('best_params', 'N/A')
         },
     }
 
-    st.download_button(
-        'Download report (Markdown)',
-        data=export_report_as_markdown_bytes(report_sections, title='CS-245 AutoML Report'),
-        file_name='automl_report.md',
-        mime='text/markdown',
-    )
+    # Generate the report content
+    markdown_report = build_markdown_report(report_sections, title='CS-245 AutoML Report')
 
-    try:
+    # Display report on the page
+    with st.expander('Preview Final Report', expanded=True):
+        st.markdown(markdown_report)
+
+    c1, c2, c3 = st.columns(3)
+    with c1:
         st.download_button(
-            'Download report (PDF)',
-            data=export_report_as_pdf_bytes(report_sections, title='CS-245 AutoML Report'),
-            file_name='automl_report.pdf',
-            mime='application/pdf',
+            'Download report (Markdown)',
+            data=markdown_report.encode('utf-8'),
+            file_name='automl_report.md',
+            mime='text/markdown',
         )
-    except Exception:
-        # If the PDF backend isn't installed, keep the UI working.
-        st.info('PDF export is unavailable (install fpdf2 to enable it).')
+    with c2:
+        # Simple HTML export
+        html_report = f"""
+        <html>
+        <head>
+            <style>
+                body {{ font-family: sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; line-height: 1.6; }}
+                h1, h2, h3 {{ color: #2c3e50; }}
+                table {{ border-collapse: collapse; width: 100%; margin: 15px 0; }}
+                th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
+                th {{ background-color: #f2f2f2; }}
+                code {{ background-color: #f8f9fa; padding: 2px 5px; border-radius: 4px; }}
+                pre {{ background-color: #f8f9fa; padding: 15px; border-radius: 5px; overflow-x: auto; }}
+            </style>
+        </head>
+        <body>
+            {markdown_report.replace(chr(10), '<br>').replace('```json', '<pre>').replace('```', '</pre>')} 
+            <!-- Note: This is a rough conversion. For better HTML, use a markdown library like 'markdown' package if available -->
+        </body>
+        </html>
+        """
+        # Better: use st.markdown to render it on the fly if needed, but for download we want a file.
+        # Since we don't have 'markdown' lib guaranteed, we used a very naive replacement above which will likely be ugly.
+        # Let's try to improve it slightly or just dump the raw text if no lib.
+        
+        try:
+            import markdown
+            html_content = f"<html><head><style>body {{ font-family: sans-serif; max-width: 800px; margin: auto; padding: 20px; }} table {{ border-collapse: collapse; width: 100%; }} th, td {{ border: 1px solid #ddd; padding: 8px; }} th {{ background-color: #f2f2f2; }}</style></head><body>{markdown.markdown(markdown_report, extensions=['tables', 'fenced_code'])}</body></html>"
+            st.download_button(
+                'Download report (HTML)',
+                data=html_content.encode('utf-8'),
+                file_name='automl_report.html',
+                mime='text/html',
+            )
+        except ImportError:
+            # Fallback if markdown lib is missing
+            st.download_button(
+                'Download report (HTML - Raw)',
+                data=f"<html><body><pre>{markdown_report}</pre></body></html>".encode('utf-8'),
+                file_name='automl_report_raw.html',
+                mime='text/html',
+                help="Install 'markdown' package for pretty HTML export."
+            )
+
+    with c3:
+        try:
+            st.download_button(
+                'Download report (PDF)',
+                data=export_report_as_pdf_bytes(report_sections, title='CS-245 AutoML Report'),
+                file_name='automl_report.pdf',
+                mime='application/pdf',
+            )
+        except Exception:
+            # If the PDF backend isn't installed, keep the UI working.
+            st.warning('PDF export unavailable (requires fpdf2).')
 
     if best_name and st.session_state.get('trained_models', {}).get(best_name, {}).get('model') is not None:
         # Export winning model pipeline as a single object (already includes preprocessing)

@@ -236,7 +236,7 @@ def train_test_split_summary(
 
     Uses the same split logic as the training step so the EDA "split summary" is consistent.
     """
-    from project.modules.Module4 import split_train_test_stratified
+    from modules.Module4 import split_train_test_stratified
 
     X_train, X_test, y_train, y_test = split_train_test_stratified(
         df,

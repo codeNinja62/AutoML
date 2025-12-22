@@ -216,7 +216,7 @@ def infer_target_candidates(
 
     scored: list[tuple[float, str]] = []
     for c in cols:
-        name_score = 1.0 if any(h in str(c).lower() for h in name_hints) else 0.0
+        name_score = 1.0 if any (h in str(c).lower() for h in name_hints) else 0.0
         u = float(uniq.get(c, 0))
         ratio = u / float(n)
         ratio_score = 1.0 if (u <= max_unique_abs or ratio <= max_unique_ratio) else 0.0
