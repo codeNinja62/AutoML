@@ -33,8 +33,13 @@ from sklearn.metrics import (
     recall_score,
     f1_score,
     roc_auc_score,
+    roc_auc_score,
     confusion_matrix,
 )
+try:
+    from xgboost import XGBClassifier
+except ImportError:
+    XGBClassifier = None
 
 
 def _compute_roc_auc(model, X_test, y_test) -> float | None:
@@ -184,6 +189,13 @@ def train_and_optimize_models(
         # Simple baseline often called "rule-based" in teaching contexts.
         'Rule-based (Most Frequent)': (DummyClassifier(strategy='most_frequent', random_state=random_state), {}),
     }
+
+    if XGBClassifier is not None:
+        models['XGBoost'] = (XGBClassifier(random_state=random_state, scale_pos_weight=None, eval_metric='logloss'), {
+            'n_estimators': [50, 100],
+            'learning_rate': [0.01, 0.1, 0.2],
+            'max_depth': [3, 6, 10], 
+        })
     
     best_models = {}
     
