@@ -11,7 +11,8 @@ import re
 import time
 from dataclasses import dataclass
 from typing import Any
-
+import matplotlib.pyplot as plt
+import seaborn as sns
 import joblib
 import numpy as np
 import pandas as pd
@@ -81,8 +82,6 @@ class PreprocessChoices:
 def _init_visual_style() -> None:
     """Initialize visual styles: theme-friendly charts and minimal CSS polish."""
     try:
-        import matplotlib.pyplot as plt
-        import seaborn as sns
         from cycler import cycler
 
         # Seaborn theme with readable grids and fonts
@@ -231,6 +230,20 @@ def _split_feasibility_hint(df: pd.DataFrame, target_col: str, test_ratio: float
     return hint
 
 
+def _render_progress_bar(step: int):
+    """Render a progress bar at the top of the page."""
+    steps = [
+        "Upload",         # 1
+        "Prepare",        # 2
+        "Understand",     # 3
+        "Preprocess",     # 4
+        "Train",          # 5
+        "Results/Export"  # 6
+    ]
+    progress = step / len(steps)
+    st.progress(progress, text=f"Pipeline Progress: **Step {step} of 6** ({steps[step-1]})")
+
+
 def _section(step: int, title: str, caption: str | None = None) -> None:
     st.header(f"Step {step} — {title}")
     if caption:
@@ -286,6 +299,27 @@ def _render_basic_info(df: pd.DataFrame, target_col: str | None):
     if target_col:
         with st.expander('Class distribution', expanded=True):
             st.dataframe(get_class_distribution(df, target_col).rename('count'), use_container_width=True)
+
+    # Added Quality Overview Chart (Step 1 Enhancement)
+    with st.expander('Dataset Quality Overview', expanded=False):
+        st.markdown('**Missing values vs. Present data**')
+        total_cells = df.size
+        missing_cells = df.isna().sum().sum()
+        present_cells = total_cells - missing_cells
+        
+        fig, ax = plt.subplots(figsize=(6, 4))
+        ax.pie(
+            [present_cells, missing_cells], 
+            labels=['Present', 'Missing'], 
+            autopct='%1.1f%%', 
+            colors=['#4CAF50', '#FF5252'],
+            explode=(0.1, 0),
+            shadow=True,
+            startangle=140
+        )
+        ax.axis('equal')
+        fig.tight_layout()
+        st.pyplot(fig, clear_figure=True)
 
 
 def _render_eda_tabs(df: pd.DataFrame, *, target_col: Any, test_ratio: float) -> None:
@@ -387,7 +421,7 @@ def _render_preview_tools(df: pd.DataFrame) -> pd.DataFrame:
 
         with st.form('drop_cols_form', clear_on_submit=False):
             drop_cols = st.multiselect('Remove columns (e.g., IDs)', options=list(df.columns))
-            drop_apply = st.form_submit_button('Apply column removals')
+            drop_apply = st.form_submit_button('Apply column removals', type='primary')
         if drop_apply and drop_cols:
             df = df.drop(columns=drop_cols)
             st.success(f'Removed {len(drop_cols)} column(s).')
@@ -411,7 +445,7 @@ def _render_preview_tools(df: pd.DataFrame) -> pd.DataFrame:
 
                 default_name = _sanitize_column_name(f"{col_a}{op}{col_b}")
                 new_name = st.text_input('New feature name', value=default_name, key='cleanup_feat_name')
-                add_feature = st.form_submit_button('Add feature')
+                add_feature = st.form_submit_button('Add feature', type='primary')
             if add_feature:
                 new_name = _sanitize_column_name(new_name)
                 if new_name in df.columns:
@@ -820,7 +854,7 @@ def _render_issue_detection_and_choices(df: pd.DataFrame, target_col: str) -> tu
         with c_apply_1:
             st.warning('Applying preprocessing will clear any existing training results.', icon=None)
         with c_apply_2:
-            apply_now = st.form_submit_button('Apply preprocessing (with approval)')
+            apply_now = st.form_submit_button('Apply preprocessing (with approval)', type='primary')
 
     numeric_impute_strategy = (
         'median' if numeric_impute == 'median'
@@ -1043,7 +1077,7 @@ def main():
                 key='cfg_selected_models',
             )
 
-            apply_training_cfg = st.form_submit_button('Apply training settings')
+            apply_training_cfg = st.form_submit_button('Apply training settings', type='primary')
 
         if apply_training_cfg:
             st.session_state['train_cfg'] = {
@@ -1110,6 +1144,18 @@ def main():
                 if k in st.session_state:
                     del st.session_state[k]
             st.rerun()
+
+    current_step = 1
+    if 'evaluation_results' in st.session_state:
+        current_step = 6
+    elif 'trained_models' in st.session_state:
+        current_step = 5
+    elif 'preprocess_approved' in st.session_state:
+        current_step = 4
+    elif st.session_state.get('working_df') is not None:
+        current_step = 2
+
+    _render_progress_bar(current_step)
 
     _section(1, 'Upload dataset', 'Supported format: CSV. Recommended: header row + clean column names.')
     uploaded = st.file_uploader('Upload a CSV file', type=['csv'])
@@ -1206,12 +1252,18 @@ def main():
 
     st.divider()
     _section(3, 'Understand dataset (EDA)', 'Automated charts and a one-page summary of key issues.')
-    _render_eda_tabs(df, target_col=target_col, test_ratio=float(test_ratio))
+    # Auto-collapse if results are ready to reduce clutter
+    eda_expanded = 'evaluation_results' not in st.session_state
+    with st.expander("Show EDA Charts", expanded=eda_expanded):
+        _render_eda_tabs(df, target_col=target_col, test_ratio=float(test_ratio))
 
     st.divider()
     _section(4, 'Approve preprocessing', 'Review detected issues and confirm preprocessing decisions.')
 
-    df_after, choices, issues = _render_issue_detection_and_choices(df, target_col)
+    # Auto-collapse if results are ready to reduce clutter
+    preprocess_expanded = 'evaluation_results' not in st.session_state
+    with st.expander("Preprocessing Configuration", expanded=preprocess_expanded):
+        df_after, choices, issues = _render_issue_detection_and_choices(df, target_col)
 
     # Safety: preprocessing (especially outlier row removal) can change the target distribution.
     tv_after = validate_target_column(df_after, target_col)
@@ -1572,7 +1624,7 @@ def main():
             st.markdown("### Model Diagnostics")
             
             # 1. Feature Importance Section
-            with st.expander("Feature Importance Analysis", expanded=True):
+            with st.expander("Feature Importance Analysis", expanded=False):
                 # Best Model Importance
                 st.markdown(f"**Best Model ({best_name}) Feature Importance**")
                 feature_names = None
@@ -1620,9 +1672,6 @@ def main():
                     with cols[idx % 2]:
                         st.caption(f"**{model_name}**")
                         cm = np.array(v['confusion_matrix'])
-                        import matplotlib.pyplot as plt
-                        import seaborn as sns
-                        
                         # Simplified heatmap logic for compactness
                         fig, ax = plt.subplots(figsize=(4, 3))
                         sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=ax, cbar=False)
