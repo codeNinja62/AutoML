@@ -155,3 +155,53 @@ def plot_decision_tree_viz(pipeline, feature_names=None, class_names=None, max_d
     ax.set_title(f"Decision Tree Visualization (Max Depth: {max_depth})")
     fig.tight_layout()
     return fig
+
+
+def plot_feature_importance(model, feature_names, top_n=20):
+    """
+    Plot feature importance for a given model.
+    Support tree-based models (feature_importances_) and linear models (coef_).
+    """
+    import numpy as np
+    
+    # Handle pipeline: extract the final estimator
+    if hasattr(model, 'steps'):
+        model = model.steps[-1][1]
+
+    if not hasattr(model, 'feature_importances_') and not hasattr(model, 'coef_'):
+        return None
+
+    importances = None
+    if hasattr(model, 'feature_importances_'):
+        importances = model.feature_importances_
+    elif hasattr(model, 'coef_'):
+        # For linear models, take absolute coefficient values (magnitude)
+        # Handle LogisticRegression which might have coefs for multiple classes
+        if model.coef_.ndim > 1:
+            importances = np.abs(model.coef_).mean(axis=0)
+        else:
+            importances = np.abs(model.coef_)
+
+    if importances is None:
+        return None
+
+    # Sort and select top N
+    indices = np.argsort(importances)[::-1]
+    if top_n:
+        indices = indices[:top_n]
+
+    # Map indices to names if provided
+    if feature_names is not None and len(feature_names) == len(importances):
+        names = [feature_names[i] for i in indices]
+    else:
+        names = [f"Feature {i}" for i in indices]
+
+    values = importances[indices]
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    sns.barplot(x=values, y=names, ax=ax, palette='viridis')
+    ax.set_title(f'Feature Importance (Top {len(values)})')
+    ax.set_xlabel('Importance')
+    ax.set_ylabel('Feature')
+    fig.tight_layout()
+    return fig
