@@ -17,6 +17,10 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 from sklearn.metrics import roc_curve
+try:
+    from xgboost import XGBClassifier
+except ImportError:
+    XGBClassifier = None
 
 from sklearn.pipeline import Pipeline
 
@@ -56,8 +60,10 @@ from modules.Module3 import (
 )
 from modules.Module4 import apply_outlier_handling, build_preprocessor, split_train_test_stratified
 from modules.Module5 import evaluate_models, train_and_optimize_models
-from modules.Module6 import plot_metric_bars, rank_algorithms, show_comparison_table, plot_decision_tree_viz
+from modules.Module5 import evaluate_models, train_and_optimize_models
+from modules.Module6 import plot_metric_bars, rank_algorithms, show_comparison_table, plot_decision_tree_viz, plot_feature_importance
 from modules.Module7 import generate_dataset_overview, export_report_as_markdown_bytes, export_report_as_pdf_bytes, build_markdown_report
+from modules.Module9 import ChatInterface
 
 
 @dataclass
@@ -995,6 +1001,8 @@ def main():
             'Support Vector Machine',
             'Rule-based (Most Frequent)',
         ]
+        if XGBClassifier is not None:
+            model_options.append('XGBoost')
         if 'selected_models' not in st.session_state:
             st.session_state['selected_models'] = model_options
 
@@ -1510,6 +1518,7 @@ def main():
                     st.rerun()
 
     if best_name is not None:
+        # Top-level summary metrics (always visible)
         top_row = valid_ranked.iloc[0]
         c1, c2, c3, c4 = st.columns(4)
         c1.metric('Best model', str(best_name))
@@ -1519,13 +1528,12 @@ def main():
         tt_val = top_row.get('training_time')
         c4.metric('Train time (s)', float(tt_val) if pd.notna(tt_val) else '—')
 
-        # Best-model callout with immediate download (so exports aren’t buried).
+        # Best-model quick download
         best_model_obj = st.session_state.get('trained_models', {}).get(best_name, {}).get('model')
         if best_model_obj is not None:
             left, right = st.columns([2, 1])
             with left:
                 st.success(f'Best model selected by {sort_metric}: {best_name}')
-                st.caption('Download includes the full trained pipeline (preprocessing + estimator).')
             with right:
                 buffer = io.BytesIO()
                 joblib.dump(best_model_obj, buffer)
@@ -1537,304 +1545,263 @@ def main():
                     key='dl_best_model_primary',
                 )
 
-        display_df = comparison_df.reset_index(drop=True).copy()
-        display_df['best'] = display_df['model'].apply(lambda m: '⭐' if m == best_name else '')
-        st.dataframe(display_df, use_container_width=True, height=260)
+        # Tabbed Interface
+        tab_res, tab_analysis, tab_chat, tab_export = st.tabs([
+            "📊 Results Overview", "🔍 Detailed Analysis", "💬 Chat with Data", "⬇️ Export Report"
+        ])
+
+        with tab_res:
+            st.subheader("Model Comparison")
+            display_df = comparison_df.reset_index(drop=True).copy()
+            display_df['status'] = display_df['model'].apply(lambda m: 'Best' if m == best_name else '')
+            st.dataframe(display_df, use_container_width=True, height=260)
+
+            with st.expander(f'See Ranking Details (by {sort_metric})', expanded=False):
+                st.dataframe(ranked, use_container_width=True)
+
+            st.pyplot(plot_metric_bars(comparison_df.reset_index(drop=True), sort_metric), clear_figure=True)
+            
+            st.download_button(
+                'Download results as CSV',
+                data=comparison_df.reset_index(drop=True).to_csv(index=False).encode('utf-8'),
+                file_name='model_comparison.csv',
+                mime='text/csv',
+            )
+
+        with tab_analysis:
+            st.markdown("### Model Diagnostics")
+            
+            # 1. Feature Importance Section
+            with st.expander("Feature Importance Analysis", expanded=True):
+                # Best Model Importance
+                st.markdown(f"**Best Model ({best_name}) Feature Importance**")
+                feature_names = None
+                if hasattr(X_train, 'columns'):
+                    feature_names = list(X_train.columns)
+                
+                # Try to extract from pipeline
+                try:
+                    fitted_pipeline = best_model_obj
+                    if hasattr(fitted_pipeline, 'named_steps') and 'preprocess' in fitted_pipeline.named_steps:
+                        preproc = fitted_pipeline.named_steps['preprocess']
+                        if hasattr(preproc, 'get_feature_names_out'):
+                            feature_names = preproc.get_feature_names_out()
+                except Exception:
+                    pass
+
+                fig_imp = plot_feature_importance(best_model_obj, feature_names)
+                if fig_imp:
+                    st.pyplot(fig_imp, clear_figure=True)
+                else:
+                    st.info(f"Feature importance not available for {best_name}.")
+
+                # XGBoost Importance (Explicit Request)
+                if 'XGBoost' in st.session_state.get('trained_models', {}):
+                    st.divider()
+                    st.markdown("**XGBoost Feature Importance**")
+                    xgb_model = st.session_state['trained_models']['XGBoost']['model']
+                    # Re-use feature names logic or assume same pipeline structure
+                    fig_xgb = plot_feature_importance(xgb_model, feature_names)
+                    if fig_xgb:
+                        st.pyplot(fig_xgb, clear_figure=True)
+                elif best_name != 'XGBoost':
+                    # Only show this note if XGBoost wasn't the best model (already shown above) and wasn't trained
+                    st.caption("XGBoost was not trained, so its specific ranking is not available.")
+
+            # 2. Confusion Matrices
+            with st.expander("Confusion Matrices", expanded=False):
+                classes_sorted = sorted(pd.unique(y_test))
+                cols = st.columns(2)
+                for idx, (model_name, v) in enumerate(evals.items()):
+                    if v.get('confusion_matrix') is None:
+                        continue
+                    
+                    # Display in grid
+                    with cols[idx % 2]:
+                        st.caption(f"**{model_name}**")
+                        cm = np.array(v['confusion_matrix'])
+                        import matplotlib.pyplot as plt
+                        import seaborn as sns
+                        
+                        # Simplified heatmap logic for compactness
+                        fig, ax = plt.subplots(figsize=(4, 3))
+                        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=ax, cbar=False)
+                        ax.set_xlabel('Predicted')
+                        ax.set_ylabel('Actual')
+                        fig.tight_layout()
+                        st.pyplot(fig, clear_figure=True)
+
+            # 3. ROC Curves
+            with st.expander("ROC Curves (Binary Classification)", expanded=False):
+                if is_binary:
+                    fig, ax = plt.subplots(figsize=(6, 4))
+                    ax.plot([0, 1], [0, 1], linestyle='--', label='Chance')
+                    
+                    pos_label = None
+                    try:
+                        uniques = sorted(y_test.unique())
+                        if len(uniques) == 2:
+                            pos_label = uniques[1]
+                    except Exception:
+                        pass
+
+                    plotted_any = False
+                    eval_results = st.session_state.get('evaluation_results', {})
+                    for model_name, model_info in st.session_state.get('trained_models', {}).items():
+                        model = model_info.get('model')
+                        if model is None or not hasattr(model, 'predict_proba'):
+                            continue
+                        try:
+                            proba = model.predict_proba(X_test)[:, 1]
+                            fpr, tpr, _ = roc_curve(y_test, proba, pos_label=pos_label)
+                            auc_score = ""
+                            if model_name in eval_results:
+                                 score = eval_results[model_name].get('roc_auc')
+                                 if score is not None:
+                                     auc_score = f" (AUC = {score:.2f})"
+                            ax.plot(fpr, tpr, label=f"{model_name}{auc_score}")
+                            plotted_any = True
+                        except Exception:
+                            continue
+                    
+                    if plotted_any:
+                        ax.set_title('ROC Curves')
+                        ax.set_xlabel('False Positive Rate')
+                        ax.set_ylabel('True Positive Rate')
+                        ax.legend(fontsize=8)
+                        st.pyplot(fig, clear_figure=True)
+                    else:
+                        st.info('No ROC curves available.')
+                else:
+                    st.info("ROC curves are only available for binary classification.")
+
+            # 4. Decision Tree Visualization
+            with st.expander("Decision Tree Structure", expanded=False):
+                dt_model_info = st.session_state.get('trained_models', {}).get('Decision Tree')
+                if dt_model_info:
+                    pipeline = dt_model_info['model']
+                    # Reuse feature_names from above
+                    class_names = None
+                    try:
+                        classifier = pipeline.steps[-1][1]
+                        if hasattr(classifier, 'classes_'):
+                            class_names = [str(c) for c in classifier.classes_]
+                    except Exception:
+                        pass
+                    fig_tree = plot_decision_tree_viz(pipeline, feature_names=feature_names, class_names=class_names, max_depth=3)
+                    if fig_tree:
+                        st.pyplot(fig_tree)
+                        st.caption("Visualizing the top 3 levels.")
+                else:
+                    st.info("Decision Tree model was not trained.")
+
+        with tab_chat:
+            training_summary = f"Best Model: {best_name}\n\nAll Trained Models Metrics:\n{comparison_df.to_string(index=False)}"
+            if best_name in st.session_state.get('trained_models', {}):
+                best_params = st.session_state['trained_models'][best_name].get('best_params', 'default')
+                training_summary += f"\n\nBest Model Hyperparameters: {best_params}"
+            _render_chat_module(df_after, training_summary=training_summary)
+
+        with tab_export:
+            _section(6, 'Export & report', 'Download results, the report, and the best trained pipeline.')
+            
+            # Collect tuned hyperparameters
+            trained_models = st.session_state.get('trained_models', {})
+            model_hyperparameters = {
+                name: info.get('best_params', 'default')
+                for name, info in trained_models.items()
+            }
+            best_model_info = trained_models.get(best_name, {}) if best_name else {}
+
+            report_sections: dict[str, Any] = {
+                'Dataset Overview': generate_dataset_overview(df_after),
+                'EDA Findings': {
+                    'missing_value_columns': int((df_after.isna().sum() > 0).sum()),
+                    'total_missing_cells': int(df_after.isna().sum().sum()),
+                    'num_features': int(df_after.select_dtypes(include='number').shape[1]),
+                    'cat_features': int(df_after.select_dtypes(exclude='number').shape[1]),
+                },
+                'Detected Issues': st.session_state.get('issues', {}),
+                'Preprocessing Decisions': st.session_state.get('preprocess_choices', {}),
+                'Model Comparison': comparison_df.reset_index(drop=True),
+                'Model Hyperparameters': model_hyperparameters,
+                'Best Model Summary': {
+                    'best_model': best_name,
+                    'ranking_metric': sort_metric,
+                    'test_score': best_model_info.get(sort_metric),
+                    'hyperparameters': best_model_info.get('best_params', 'N/A')
+                },
+            }
+
+            markdown_report = build_markdown_report(report_sections, title='CS-245 AutoML Report')
+
+            with st.expander('Preview Final Report', expanded=False):
+                st.markdown(markdown_report)
+
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                st.download_button('Download report (Markdown)', data=markdown_report.encode('utf-8'), file_name='automl_report.md', mime='text/markdown')
+            with c2:
+                st.download_button('Download report (HTML - Raw)', data=f"<html><body><pre>{markdown_report}</pre></body></html>".encode('utf-8'), file_name='automl_report_raw.html', mime='text/html')
+            with c3:
+                try:
+                    st.download_button('Download report (PDF)', data=export_report_as_pdf_bytes(report_sections, title='CS-245 AutoML Report'), file_name='automl_report.pdf', mime='application/pdf')
+                except Exception:
+                    st.warning("PDF export unavailable.")
+
+            if best_name and best_model_obj is not None:
+                buffer = io.BytesIO()
+                joblib.dump(best_model_obj, buffer)
+                st.download_button(
+                    'Download best model (pickle/joblib)',
+                    data=buffer.getvalue(),
+                    file_name=f"best_model_{_safe_filename_component(best_name)}.joblib",
+                    mime='application/octet-stream',
+                    key='dl_best_model_export',
+                )
+
     else:
         st.dataframe(comparison_df, use_container_width=True, height=260)
-    with st.expander(f'Ranking by {sort_metric}', expanded=False):
-        st.dataframe(ranked, use_container_width=True)
-
-    st.pyplot(plot_metric_bars(comparison_df.reset_index(drop=True), sort_metric), clear_figure=True)
-
-    st.download_button(
-        'Download results as CSV',
-        data=comparison_df.reset_index(drop=True).to_csv(index=False).encode('utf-8'),
-        file_name='model_comparison.csv',
-        mime='text/csv',
-    )
-
-    # Show confusion matrices
-    st.subheader('Confusion matrices')
-    classes_sorted = sorted(pd.unique(y_test))
-    for model_name, v in evals.items():
-        if v.get('confusion_matrix') is None:
-            continue
-        with st.expander(f'{model_name}', expanded=(model_name == best_name)):
-            cm = np.array(v['confusion_matrix'])
-
-            import matplotlib.pyplot as plt
-            import seaborn as sns
-
-            # Binary: show a simple 2x2 quadrant matrix with explicit labels
-            if cm.shape == (2, 2):
-                tn, fp, fn, tp = cm.ravel()
-                annot = np.array([
-                    [f"TN\n{tn}", f"FP\n{fp}"],
-                    [f"FN\n{fn}", f"TP\n{tp}"],
-                ])
-                fig, ax = plt.subplots(figsize=(4.5, 3.5))
-                sns.heatmap(
-                    cm,
-                    annot=annot,
-                    fmt='',
-                    cmap='Blues',
-                    cbar=False,
-                    linewidths=1,
-                    linecolor='white',
-                    square=True,
-                    ax=ax,
-                )
-                ax.set_title('Confusion Matrix (2×2)')
-                ax.set_xlabel('Predicted')
-                ax.set_ylabel('Actual')
-                tick_labels = [str(classes_sorted[0]), str(classes_sorted[1])] if len(classes_sorted) == 2 else ['0', '1']
-                ax.set_xticklabels(tick_labels)
-                ax.set_yticklabels(tick_labels, rotation=0)
-                fig.tight_layout()
-                st.pyplot(fig, clear_figure=True)
-            else:
-                fig, ax = plt.subplots(figsize=(6, 4))
-                n = cm.shape[0]
-                if n <= 10 and len(classes_sorted) == n:
-                    labels = [str(c) for c in classes_sorted]
-                    sns.heatmap(
-                        cm,
-                        annot=True,
-                        fmt='d',
-                        cmap='Blues',
-                        ax=ax,
-                        xticklabels=labels,
-                        yticklabels=labels,
-                    )
-                    ax.tick_params(axis='x', rotation=45)
-                elif n <= 25 and len(classes_sorted) == n:
-                    labels = [str(c) for c in classes_sorted]
-                    sns.heatmap(
-                        cm,
-                        annot=False,
-                        cmap='Blues',
-                        ax=ax,
-                        xticklabels=labels,
-                        yticklabels=labels,
-                    )
-                    ax.tick_params(axis='x', rotation=45)
-                else:
-                    sns.heatmap(cm, annot=False, fmt='d', cmap='Blues', ax=ax)
-                    ax.set_xticklabels([])
-                    ax.set_yticklabels([])
-                    st.caption(f'Confusion matrix has {n} classes; tick labels hidden for readability.')
-                ax.set_title('Confusion Matrix')
-                ax.set_xlabel('Predicted')
-                ax.set_ylabel('Actual')
-                fig.tight_layout()
-                st.pyplot(fig, clear_figure=True)
-
-    # Best model + downloads
-    # ROC curve (binary only)
-    if is_binary:
-        st.subheader('ROC curves (binary classification)')
-        import matplotlib.pyplot as plt
-
-        fig, ax = plt.subplots(figsize=(6, 4))
-        ax.plot([0, 1], [0, 1], linestyle='--', label='Chance')
-        
-        # Determine positive label for ROC
-        pos_label = None
-        try:
-            uniques = sorted(y_test.unique())
-            if len(uniques) == 2:
-                pos_label = uniques[1]
-        except Exception:
-            pass
-
-        plotted_any = False
-        eval_results = st.session_state.get('evaluation_results', {})
-
-        for model_name, model_info in st.session_state.get('trained_models', {}).items():
-            model = model_info.get('model')
-            if model is None or not hasattr(model, 'predict_proba'):
-                continue
-            try:
-                # model.classes_ are sorted, so index 1 is the 'positive' class in binary
-                # We trust that predict_proba column 1 corresponds to pos_label determined above
-                proba = model.predict_proba(X_test)[:, 1]
-                fpr, tpr, _ = roc_curve(y_test, proba, pos_label=pos_label)
-                
-                # Get AUC from evaluation results if available
-                auc_score = ""
-                if model_name in eval_results:
-                     score = eval_results[model_name].get('roc_auc')
-                     if score is not None:
-                         auc_score = f" (AUC = {score:.2f})"
-                
-                ax.plot(fpr, tpr, label=f"{model_name}{auc_score}")
-                plotted_any = True
-            except Exception:
-                continue
-        if plotted_any:
-            ax.set_title('ROC Curves')
-            ax.set_xlabel('False Positive Rate')
-            ax.set_ylabel('True Positive Rate')
-            ax.legend(fontsize=8)
-            fig.tight_layout()
-            st.pyplot(fig, clear_figure=True)
-        else:
-            st.info('No ROC curves available (models may not support probabilities).')
-
-    # Visualize Decision Tree if available
-    dt_model_info = st.session_state.get('trained_models', {}).get('Decision Tree')
-    if dt_model_info:
-        st.subheader("Decision Tree Visualization")
-        pipeline = dt_model_info['model']
-        
-        try:
-            # Try to get feature names from the preprocessor
-            feature_names = None
-            if hasattr(pipeline, 'named_steps') and 'preprocessor' in pipeline.named_steps:
-                 preprocessor = pipeline.named_steps['preprocessor']
-                 if hasattr(preprocessor, 'get_feature_names_out'):
-                     feature_names = list(preprocessor.get_feature_names_out())
-            elif hasattr(pipeline, 'steps'):
-                 # Fallback: assume first step is preprocessor
-                 preprocessor = pipeline.steps[0][1]
-                 if hasattr(preprocessor, 'get_feature_names_out'):
-                     feature_names = list(preprocessor.get_feature_names_out())
-        except Exception:
-             feature_names = None
-
-        # Class names
-        class_names = None
-        try:
-            # Check the classifier step for classes_
-            classifier = pipeline.steps[-1][1]
-            if hasattr(classifier, 'classes_'):
-                class_names = [str(c) for c in classifier.classes_]
-        except Exception:
-            pass
-
-        fig_tree = plot_decision_tree_viz(pipeline, feature_names=feature_names, class_names=class_names, max_depth=3)
-        if fig_tree:
-             st.pyplot(fig_tree)
-             st.caption("Visualizing the top 3 levels of the trained Decision Tree.")
-
-    st.divider()
-    _section(6, 'Export & report', 'Download results, the report, and the best trained pipeline.')
-    st.subheader('Auto-generated final report')
-    if best_name:
-        st.success(f'Best model by {sort_metric}: {best_name}')
-    else:
         st.warning('No successful models to select as best model.')
+def _render_chat_module(df: pd.DataFrame, training_summary: str | None = None):
+    st.subheader("Chat with your Dataset")
+    st.caption("Powered by Gemini API")
 
-    # Collect tuned hyperparameters for all models
-    trained_models = st.session_state.get('trained_models', {})
-    model_hyperparameters = {
-        name: info.get('best_params', 'default')
-        for name, info in trained_models.items()
-    }
+    if 'chat_interface' not in st.session_state:
+        st.session_state['chat_interface'] = ChatInterface()
+    
+    chat: ChatInterface = st.session_state['chat_interface']
 
-    best_model_info = trained_models.get(best_name, {}) if best_name else {}
+    # Sidebar configuration for API Key if not in env
+    if not chat.is_configured():
+        api_key = st.text_input("Enter Gemini API Key", type="password")
+        if api_key:
+            st.session_state['chat_interface'] = ChatInterface(api_key=api_key)
+            st.success("API Key configured!")
+            st.rerun()
+        else:
+            st.warning("Please provide a Gemini API Key to use the chat feature. (Set GEMINI_API_KEY in .env or enter here)")
+            return
 
-    report_sections: dict[str, Any] = {
-        'Dataset Overview': generate_dataset_overview(df_after),
-        'EDA Findings': {
-            'missing_value_columns': int((df_after.isna().sum() > 0).sum()),
-            'total_missing_cells': int(df_after.isna().sum().sum()),
-            'num_features': int(df_after.select_dtypes(include='number').shape[1]),
-            'cat_features': int(df_after.select_dtypes(exclude='number').shape[1]),
-        },
-        'Detected Issues': st.session_state.get('issues', {}),
-        'Preprocessing Decisions': st.session_state.get('preprocess_choices', {}),
-        'Model Comparison': comparison_df.reset_index(drop=True),
-        'Model Hyperparameters': model_hyperparameters,
-        'Best Model Summary': {
-            'best_model': best_name,
-            'ranking_metric': sort_metric,
-            'test_score': best_model_info.get(sort_metric),
-            'hyperparameters': best_model_info.get('best_params', 'N/A')
-        },
-    }
+    # Chat UI
+    if 'messages' not in st.session_state:
+        st.session_state['messages'] = []
+        # Initialize chat with dataset context
+        chat.start_new_chat(df, training_results=training_summary)
+        st.session_state['messages'].append({"content": "Hello! I've analyzed your dataset and training results. Ask me anything about them.", "role": "assistant"})
 
-    # Generate the report content
-    markdown_report = build_markdown_report(report_sections, title='CS-245 AutoML Report')
+    for msg in st.session_state['messages']:
+        st.chat_message(msg["role"]).write(msg["content"])
 
-    # Display report on the page
-    with st.expander('Preview Final Report', expanded=True):
-        st.markdown(markdown_report)
+    if prompt := st.chat_input("Ask a question about your data..."):
+        st.session_state['messages'].append({"role": "user", "content": prompt})
+        st.chat_message("user").write(prompt)
 
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        st.download_button(
-            'Download report (Markdown)',
-            data=markdown_report.encode('utf-8'),
-            file_name='automl_report.md',
-            mime='text/markdown',
-        )
-    with c2:
-        # Simple HTML export
-        html_report = f"""
-        <html>
-        <head>
-            <style>
-                body {{ font-family: sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; line-height: 1.6; }}
-                h1, h2, h3 {{ color: #2c3e50; }}
-                table {{ border-collapse: collapse; width: 100%; margin: 15px 0; }}
-                th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
-                th {{ background-color: #f2f2f2; }}
-                code {{ background-color: #f8f9fa; padding: 2px 5px; border-radius: 4px; }}
-                pre {{ background-color: #f8f9fa; padding: 15px; border-radius: 5px; overflow-x: auto; }}
-            </style>
-        </head>
-        <body>
-            {markdown_report.replace(chr(10), '<br>').replace('```json', '<pre>').replace('```', '</pre>')} 
-            <!-- Note: This is a rough conversion. For better HTML, use a markdown library like 'markdown' package if available -->
-        </body>
-        </html>
-        """
-        # Better: use st.markdown to render it on the fly if needed, but for download we want a file.
-        # Since we don't have 'markdown' lib guaranteed, we used a very naive replacement above which will likely be ugly.
-        # Let's try to improve it slightly or just dump the raw text if no lib.
-        
-        try:
-            import markdown
-            html_content = f"<html><head><style>body {{ font-family: sans-serif; max-width: 800px; margin: auto; padding: 20px; }} table {{ border-collapse: collapse; width: 100%; }} th, td {{ border: 1px solid #ddd; padding: 8px; }} th {{ background-color: #f2f2f2; }}</style></head><body>{markdown.markdown(markdown_report, extensions=['tables', 'fenced_code'])}</body></html>"
-            st.download_button(
-                'Download report (HTML)',
-                data=html_content.encode('utf-8'),
-                file_name='automl_report.html',
-                mime='text/html',
-            )
-        except ImportError:
-            # Fallback if markdown lib is missing
-            st.download_button(
-                'Download report (HTML - Raw)',
-                data=f"<html><body><pre>{markdown_report}</pre></body></html>".encode('utf-8'),
-                file_name='automl_report_raw.html',
-                mime='text/html',
-                help="Install 'markdown' package for pretty HTML export."
-            )
+        with st.spinner("Thinking..."):
+            response = chat.send_message(prompt)
+            st.session_state['messages'].append({"role": "assistant", "content": response})
+            st.chat_message("assistant").write(response)
 
-    with c3:
-        try:
-            st.download_button(
-                'Download report (PDF)',
-                data=export_report_as_pdf_bytes(report_sections, title='CS-245 AutoML Report'),
-                file_name='automl_report.pdf',
-                mime='application/pdf',
-            )
-        except Exception:
-            # If the PDF backend isn't installed, keep the UI working.
-            st.warning('PDF export unavailable (requires fpdf2).')
 
-    if best_name and st.session_state.get('trained_models', {}).get(best_name, {}).get('model') is not None:
-        # Export winning model pipeline as a single object (already includes preprocessing)
-        export_pipeline = st.session_state['trained_models'][best_name]['model']
-        buffer = io.BytesIO()
-        joblib.dump(export_pipeline, buffer)
-        st.download_button(
-            'Download best model (pickle/joblib)',
-            data=buffer.getvalue(),
-            file_name=f"best_model_{_safe_filename_component(best_name)}.joblib",
-            mime='application/octet-stream',
-            key='dl_best_model_export',
-        )
+if __name__ == "__main__":
+    main()
