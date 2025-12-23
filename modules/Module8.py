@@ -1599,7 +1599,7 @@ def main():
 
         # Tabbed Interface
         tab_res, tab_analysis, tab_chat, tab_export = st.tabs([
-            "📊 Results Overview", "🔍 Detailed Analysis", "💬 Chat with Data", "⬇️ Export Report"
+            "Results Overview", " Detailed Analysis", " Chat with Data", " Export Report"
         ])
 
         with tab_res:
