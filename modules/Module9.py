@@ -33,24 +33,27 @@ class ChatInterface:
             os.environ["GEMINI_API_KEY"] = self.api_key
 
         # show whether a key was loaded (do NOT print the key)
-        try:
-            st.info(f"API key loaded: {bool(self.api_key)}")
-        except Exception:
-            pass
+        # try:
+        #     st.info(f"API key loaded: {bool(self.api_key)}")
+        # except Exception:
+        #     pass
 
         self.client: genai.Client | None = None
         self.system_prompt: str | None = None
         self.model = "gemini-2.5-flash"
+        self.init_error: str | None = None
 
         try:
             # Pass the key explicitly to avoid env var race / Cloud secrets issues
             self.client = genai.Client(api_key=self.api_key) if self.api_key else genai.Client()
         except Exception as e:
+            self.init_error = str(e)
             # Surface the error in Streamlit UI (so deployed app shows it)
             try:
                 st.error(f"Failed to initialize Gemini client: {e}")
             except Exception:
-                print(f"Failed to initialize Gemini client: {e}")
+                # Non-Streamlit context; keep silent but record the error
+                pass
 
     @property
     def masked_key(self) -> str:
