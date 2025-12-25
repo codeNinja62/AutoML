@@ -2,7 +2,7 @@ import unittest
 
 import pandas as pd
 
-from project.modules.Module7 import build_markdown_report, export_report_as_markdown_bytes
+from modules.Module7 import build_markdown_report, export_report_as_markdown_bytes
 
 
 class TestModule7Markdown(unittest.TestCase):
@@ -29,7 +29,7 @@ class TestModule7Markdown(unittest.TestCase):
 class TestModule7Pdf(unittest.TestCase):
     def test_export_report_as_pdf_bytes_if_available(self):
         try:
-            from project.modules.Module7 import export_report_as_pdf_bytes
+            from modules.Module7 import export_report_as_pdf_bytes
         except Exception:
             self.skipTest("Module7 missing PDF export")
 

@@ -2,7 +2,7 @@ import unittest
 
 import pandas as pd
 
-from project.modules.Module1 import (
+from modules.Module1 import (
     get_cardinality_buckets,
     get_all_missing_columns,
     get_constant_columns,

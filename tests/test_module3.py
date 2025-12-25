@@ -2,7 +2,7 @@ import unittest
 
 import pandas as pd
 
-from project.modules.Module3 import detect_issues
+from modules.Module3 import detect_issues
 
 
 class TestModule3IssueDetection(unittest.TestCase):

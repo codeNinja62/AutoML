@@ -4,7 +4,7 @@ import unittest
 
 import pandas as pd
 
-from project.modules.Module6 import plot_metric_bars, rank_algorithms, results_to_csv_bytes, save_results_to_csv, show_comparison_table
+from modules.Module6 import plot_metric_bars, rank_algorithms, results_to_csv_bytes, save_results_to_csv, show_comparison_table
 
 
 class TestModule6(unittest.TestCase):

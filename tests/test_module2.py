@@ -2,7 +2,7 @@ import unittest
 
 import pandas as pd
 
-from project.modules.Module2 import (
+from modules.Module2 import (
     correlation_matrix,
     missing_value_analysis,
     outlier_summary_iqr,

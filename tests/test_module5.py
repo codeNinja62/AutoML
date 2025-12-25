@@ -3,8 +3,8 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from project.modules.Module4 import build_preprocessor
-from project.modules.Module5 import evaluate_models, train_and_optimize_models
+from modules.Module4 import build_preprocessor
+from modules.Module5 import evaluate_models, train_and_optimize_models
 
 
 class TestModule5Training(unittest.TestCase):

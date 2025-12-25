@@ -2,7 +2,7 @@ import unittest
 
 import pandas as pd
 
-from project.modules.Module4 import apply_outlier_handling, build_preprocessor, split_train_test_stratified
+from modules.Module4 import apply_outlier_handling, build_preprocessor, split_train_test_stratified
 
 
 class TestModule4SplitTrainTestStratified(unittest.TestCase):
