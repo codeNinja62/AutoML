@@ -777,7 +777,7 @@ def _render_issue_detection_and_choices(df: pd.DataFrame, target_col: str) -> tu
                     issue_rows.append({'issue': k, 'count': None, 'notes': str(v)})
             st.dataframe(pd.DataFrame(issue_rows), use_container_width=True)
 
-        with st.expander('Issue details', expanded=False):
+        if st.checkbox('Show Issue details', value=False):
             if findings:
                 for f in findings:
                     sev = (f.get('severity') or 'warning').lower()
@@ -840,7 +840,7 @@ def _render_issue_detection_and_choices(df: pd.DataFrame, target_col: str) -> tu
     except Exception:
         pass
 
-    with st.expander('Recommended preprocessing (based on detected issues)', expanded=bool(findings)):
+    if st.checkbox('Show Recommended preprocessing (based on detected issues)', value=bool(findings)):
         st.write('- Missing values → numeric: ' + str(recommended['numeric_impute_ui']) + ', categorical: ' + str(recommended['categorical_impute_ui']))
         st.write('- Encoding → ' + str(recommended['encoding_ui']))
         st.write('- Scaling → ' + str(recommended['scaling_ui']))
