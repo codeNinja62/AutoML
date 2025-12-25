@@ -617,7 +617,7 @@ def _render_eda_summary(df: pd.DataFrame, target_col: str):
     c5.metric('High-cardinality', len(issues.get('high_cardinality', [])) if isinstance(issues.get('high_cardinality', []), list) else 0)
     c6.metric('Constant cols', len(issues.get('constant_features', [])) if isinstance(issues.get('constant_features', []), list) else 0)
     c7.metric('Class imbalance', 'Yes' if 'class_imbalance' in issues else 'No')
-    c8.metric('', '')  # placeholder for alignment
+    c8.metric('Spacer', ' ', label_visibility='hidden')  # keep grid aligned without empty label warnings
 
 
 def _render_eda(df: pd.DataFrame, *, target_col: Any, test_ratio: float):
