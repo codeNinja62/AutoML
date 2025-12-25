@@ -64,6 +64,34 @@ streamlit run streamlit_app.py
 ```bash
 python -m unittest -q
 ```
+## Test Suite
+
+The project includes 38 unit tests covering all core modules. Run with:
+```bash
+python -m unittest -q
+```
+
+### Test Coverage
+
+| Test File | Module | Tests | Description |
+|-----------|--------|-------|-------------|
+| `test_module1.py` | Data Loading | 8 | Dataset shape, missing values, duplicates, unique counts, cardinality buckets, schema generation, target validation, and candidate inference |
+| `test_module2.py` | EDA | 5 | Missing value analysis, correlation matrix, outlier detection (IQR and Z-score), train/test split summary |
+| `test_module3.py` | Issue Detection | 4 | Detects missing values, high cardinality features, class imbalance, and constant features |
+| `test_module4.py` | Preprocessing | 7 | Train/test split validation, preprocessor pipeline with OneHot/Ordinal encoding, outlier handling (cap/remove with IQR/Z-score) |
+| `test_module5.py` | Model Training | 4 | CV fold reduction for small classes, pipeline integration, confusion matrix generation, multiclass ROC-AUC |
+| `test_module6.py` | Comparison | 5 | Comparison table creation, algorithm ranking, CSV export (bytes and file), metric bar chart generation |
+| `test_module7.py` | Report Export | 3 | Markdown report generation, Markdown bytes export, PDF generation (if fpdf2 installed) |
+
+### Key Test Scenarios
+
+- **Split Validation**: Tests edge cases like missing target columns, single-sample classes, and insufficient test sizes
+- **Outlier Handling**: Verifies both IQR capping and row removal with configurable thresholds
+- **Pipeline Integration**: Ensures preprocessor correctly chains with estimators
+- **Multiclass Support**: Tests ROC-AUC calculation for 3+ class problems
+- **Report Generation**: Validates Markdown structure and PDF byte output
+
+
 
 ## Deployment on Streamlit Cloud
 
