@@ -1158,9 +1158,25 @@ def main():
     _render_progress_bar(current_step)
 
     _section(1, 'Upload dataset', 'Supported format: CSV. Recommended: header row + clean column names.')
-    uploaded = st.file_uploader('Upload a CSV file', type=['csv'])
+    
+    col_upload, col_sample = st.columns([3, 1])
+    with col_upload:
+        uploaded = st.file_uploader('Upload a CSV file', type=['csv'])
+    with col_sample:
+        st.caption("Or use our sample:")
+        if st.button('Load Sample Dataset', type='primary'):
+            try:
+                import os
+                sample_path = os.path.join(os.path.dirname(__file__), '..', 'data.csv')
+                with open(sample_path, 'rb') as f:
+                    st.session_state['uploaded_bytes'] = f.read()
+                    st.session_state['uploaded_name'] = 'sample_loan_data.csv'
+                st.rerun()
+            except Exception as e:
+                st.error(f"Could not load sample dataset: {e}")
+    
     if uploaded is None and 'uploaded_bytes' not in st.session_state:
-        st.info('Upload a CSV to start.')
+        st.info('Upload a CSV or click "Load Sample Dataset" to start.')
         return
 
     # FR-1 / NFR-P1: basic file-size validation (defensive against None)
