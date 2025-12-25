@@ -236,7 +236,7 @@ def _render_progress_bar(step: int):
         ("Upload Dataset", 1),
         ("Understand", 2),
         ("Preprocess", 3),
-        ("Train", 4),
+        ("Train Model", 4),
         ("Compare", 5),
         ("Export", 6)
     ]
