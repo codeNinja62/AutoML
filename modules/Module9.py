@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import pandas as pd
-import google.generativeai as genai
+from google import genai
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -25,22 +25,22 @@ class ChatInterface:
             
             if not self.api_key:
                 self.api_key = os.getenv("GEMINI_API_KEY")
-        self.model = None
+        
+        self.client = None
         self.chat_session = None
         
         if self.api_key:
             try:
-                genai.configure(api_key=self.api_key)
-                self.model = genai.GenerativeModel('gemini-2.5-flash-lite')
+                self.client = genai.Client(api_key=self.api_key)
             except Exception as e:
-                print(f"Failed to initialize Gemini: {e}")
+                print(f"Failed to initialize Gemini Client: {e}")
 
     def is_configured(self) -> bool:
-        return self.model is not None
+        return self.client is not None
 
     def start_new_chat(self, df: pd.DataFrame, training_results: str | None = None) -> None:
         """Initialize a new chat session with dataset and training context."""
-        if not self.model:
+        if not self.client:
             return
 
         # Create a context prompt about the dataset
@@ -69,11 +69,14 @@ If asked which model is best, refer to the training results.
 If asked about data patterns, refer to the schema and summary.
 Be highly specific, task-oriented, and educational. Avoid generic apologies.
 """
-        history = [
-            {"role": "user", "parts": [system_prompt]},
-            {"role": "model", "parts": ["I have analyzed your dataset and the training results. Ask me anything about the data, the models, or the insights found."]}
-        ]
-        self.chat_session = self.model.start_chat(history=history)
+        try:
+            # Use the new SDK's chat creation method
+            self.chat_session = self.client.chats.create(model="gemini-2.5-flash")
+            # Send the system prompt as the first message to set context
+            self.chat_session.send_message(system_prompt)
+        except Exception as e:
+            print(f"Error initializing chat: {e}")
+            self.chat_session = None
 
     def send_message(self, message: str) -> str:
         """Send a message to the chat session and get response."""
