@@ -126,6 +126,5 @@ GEMINI_API_KEY = "your-api-key"
 |-------|----------|
 | PDF export unavailable | Ensure `fpdf2` is installed: `pip install fpdf2` |
 | Chat not working | Check GEMINI_API_KEY in .env or st.secrets |
-| Table overflow | Tables now have horizontal scroll (CSS fix applied) |
-| Logistic Regression fails on multiclass | Fixed: Now uses `lbfgs` solver instead of `liblinear` |
+
 
