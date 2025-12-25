@@ -16,13 +16,14 @@ class ChatInterface:
         import streamlit as st
         
         self.api_key = None
+        self.masked_key = "NOT_FOUND"
         
         # 1. Try st.secrets first (for Streamlit Cloud)
         try:
             secret_key = st.secrets.get("GEMINI_API_KEY")
             if secret_key:
                 self.api_key = secret_key.strip().strip('"').strip("'")
-                print(self.api_key[:10])
+                self.masked_key = f"{self.api_key[:10]}..."
         except Exception:
             pass
         
@@ -31,10 +32,12 @@ class ChatInterface:
             env_key = os.getenv("GEMINI_API_KEY")
             if env_key:
                 self.api_key = env_key.strip().strip('"').strip("'")
+                self.masked_key = f"{self.api_key[:10]}... (from .env)"
         
         # 3. Use explicit arg as fallback
         if not self.api_key and api_key:
             self.api_key = api_key.strip().strip('"').strip("'")
+            self.masked_key = f"{self.api_key[:10]}... (manual input)"
         
         self.model = None
         self.chat_session = None
