@@ -22,6 +22,7 @@ class ChatInterface:
             secret_key = st.secrets.get("GEMINI_API_KEY")
             if secret_key:
                 self.api_key = secret_key.strip().strip('"').strip("'")
+                print(self.api_key[:10])
         except Exception:
             pass
         
