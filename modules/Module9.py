@@ -16,10 +16,15 @@ class ChatInterface:
         import streamlit as st
         if api_key:
             self.api_key = api_key
-        elif "GEMINI_API_KEY" in st.secrets:
-            self.api_key = st.secrets["GEMINI_API_KEY"]
         else:
-            self.api_key = os.getenv("GEMINI_API_KEY")
+            # Try st.secrets first (for Streamlit Cloud), fallback to .env
+            try:
+                self.api_key = st.secrets.get("GEMINI_API_KEY")
+            except Exception:
+                self.api_key = None
+            
+            if not self.api_key:
+                self.api_key = os.getenv("GEMINI_API_KEY")
         self.model = None
         self.chat_session = None
         
