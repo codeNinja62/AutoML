@@ -231,17 +231,121 @@ def _split_feasibility_hint(df: pd.DataFrame, target_col: str, test_ratio: float
 
 
 def _render_progress_bar(step: int):
-    """Render a progress bar at the top of the page."""
+    """Render a visual step indicator at the top of the page."""
     steps = [
-        "Upload",         # 1
-        "Prepare",        # 2
-        "Understand",     # 3
-        "Preprocess",     # 4
-        "Train",          # 5
-        "Results/Export"  # 6
+        ("Upload", 1),
+        ("Understand", 2),
+        ("Preprocess", 3),
+        ("Train", 4),
+        ("Compare", 5),
+        ("Export", 6)
     ]
-    progress = step / len(steps)
-    st.progress(progress, text=f"Pipeline Progress: **Step {step} of 6** ({steps[step-1]})")
+    
+    # Build HTML for visual step indicator
+    step_html = """
+    <style>
+    .pipeline-steps {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 15px 0;
+        margin-bottom: 20px;
+        background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+        border-radius: 10px;
+        padding: 20px;
+    }
+    .step-item {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        flex: 1;
+        position: relative;
+    }
+    .step-circle {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: bold;
+        font-size: 16px;
+        margin-bottom: 8px;
+        transition: all 0.3s ease;
+    }
+    .step-completed {
+        background: linear-gradient(135deg, #27ae60 0%, #2ecc71 100%);
+        color: white;
+        box-shadow: 0 4px 15px rgba(39, 174, 96, 0.4);
+    }
+    .step-current {
+        background: linear-gradient(135deg, #2980b9 0%, #3498db 100%);
+        color: white;
+        box-shadow: 0 4px 15px rgba(41, 128, 185, 0.4);
+        animation: pulse 2s infinite;
+    }
+    .step-pending {
+        background: #dee2e6;
+        color: #6c757d;
+    }
+    .step-label {
+        font-size: 12px;
+        font-weight: 500;
+        color: #495057;
+        text-align: center;
+    }
+    .step-label.active {
+        color: #2980b9;
+        font-weight: 700;
+    }
+    .step-arrow {
+        color: #adb5bd;
+        font-size: 20px;
+        margin: 0 5px;
+    }
+    .step-arrow.completed {
+        color: #27ae60;
+    }
+    @keyframes pulse {
+        0% { transform: scale(1); }
+        50% { transform: scale(1.1); }
+        100% { transform: scale(1); }
+    }
+    </style>
+    <div class="pipeline-steps">
+    """
+    
+    for i, (name, num) in enumerate(steps):
+        if num < step:
+            circle_class = "step-completed"
+            label_class = ""
+            icon = "&#10003;"  # checkmark
+        elif num == step:
+            circle_class = "step-current"
+            label_class = "active"
+            icon = str(num)
+        else:
+            circle_class = "step-pending"
+            label_class = ""
+            icon = str(num)
+        
+        step_html += f'''
+        <div class="step-item">
+            <div class="step-circle {circle_class}">{icon}</div>
+            <span class="step-label {label_class}">{name}</span>
+        </div>
+        '''
+        
+        # Add arrow between steps (except after last)
+        if i < len(steps) - 1:
+            arrow_class = "completed" if num < step else ""
+            step_html += f'<span class="step-arrow {arrow_class}">&#8594;</span>'
+    
+    step_html += "</div>"
+    
+    # Use components.html for reliable HTML rendering
+    import streamlit.components.v1 as components
+    components.html(step_html, height=100)
 
 
 def _section(step: int, title: str, caption: str | None = None) -> None:
