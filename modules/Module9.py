@@ -28,13 +28,22 @@ class ChatInterface:
             if not self.api_key:
                 self.api_key = os.getenv("GEMINI_API_KEY")
 
-        self.client: genai.Client | None = None
-        self.chat_session = None
-
+        # Ensure the environment variable is set so genai.Client() can pick it up
         if self.api_key:
+            os.environ["GEMINI_API_KEY"] = self.api_key
+
+        self.client: genai.Client | None = None
+        self.system_prompt: str | None = None
+        self.model = "gemini-2.5-flash"
+
+        try:
+            # Use genai.Client() with the env var; matches the example usage you provided
+            self.client = genai.Client()
+        except Exception as e:
+            # Surface the error in Streamlit UI (so deployed app shows it)
             try:
-                self.client = genai.Client(api_key=self.api_key)
-            except Exception as e:
+                st.error(f"Failed to initialize Gemini client: {e}")
+            except Exception:
                 print(f"Failed to initialize Gemini client: {e}")
 
     @property
@@ -83,29 +92,24 @@ Rules:
 - Be specific, technical, and educational
 """
 
-        try:
-            self.chat_session = self.client.chats.create(
-                model="gemini-2.5-flash"
-            )
-            self.chat_session.send_message(system_prompt)
-
-        except Exception as e:
-            print(f"Error initializing chat: {e}")
-            self.chat_session = None
+        # Store the system prompt; we'll use generate_content for each user message
+        self.system_prompt = system_prompt
 
     def send_message(self, message: str) -> str:
-        if not self.chat_session:
+        if not self.client or not self.system_prompt:
             return "Chat session not initialized."
 
         try:
-            response = self.chat_session.send_message(message)
+            prompt = self.system_prompt + "\nUSER: " + message
+            response = self.client.models.generate_content(
+                model=self.model, contents=prompt
+            )
 
-            # Most common case
             if hasattr(response, "text"):
                 return response.text
 
-            # Defensive fallback for structured responses
-            return response.candidates[0].content.parts[0].text
+            # Defensive fallback
+            return str(response)
 
         except Exception as e:
             return f"Error communicating with Gemini: {e}"
