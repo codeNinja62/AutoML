@@ -233,7 +233,7 @@ def _split_feasibility_hint(df: pd.DataFrame, target_col: str, test_ratio: float
 def _render_progress_bar(step: int):
     """Render a visual step indicator at the top of the page."""
     steps = [
-        ("Upload", 1),
+        ("Upload Dataset", 1),
         ("Understand", 2),
         ("Preprocess", 3),
         ("Train", 4),

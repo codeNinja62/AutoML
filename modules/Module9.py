@@ -12,19 +12,29 @@ load_dotenv()
 
 class ChatInterface:
     def __init__(self, api_key: str | None = None):
-        # Priority: 1. Explicit arg, 2. st.secrets (Streamlit Cloud), 3. .env (local)
+        # Priority: 1. st.secrets (Streamlit Cloud), 2. .env (local), 3. Explicit arg
         import streamlit as st
-        if api_key:
-            self.api_key = api_key
-        else:
-            # Try st.secrets first (for Streamlit Cloud), fallback to .env
-            try:
-                self.api_key = st.secrets.get("GEMINI_API_KEY")
-            except Exception:
-                self.api_key = None
-            
-            if not self.api_key:
-                self.api_key = os.getenv("GEMINI_API_KEY")
+        
+        self.api_key = None
+        
+        # 1. Try st.secrets first (for Streamlit Cloud)
+        try:
+            secret_key = st.secrets.get("GEMINI_API_KEY")
+            if secret_key:
+                self.api_key = secret_key.strip().strip('"').strip("'")
+        except Exception:
+            pass
+        
+        # 2. Try .env (for local development)
+        if not self.api_key:
+            env_key = os.getenv("GEMINI_API_KEY")
+            if env_key:
+                self.api_key = env_key.strip().strip('"').strip("'")
+        
+        # 3. Use explicit arg as fallback
+        if not self.api_key and api_key:
+            self.api_key = api_key.strip().strip('"').strip("'")
+        
         self.model = None
         self.chat_session = None
         
