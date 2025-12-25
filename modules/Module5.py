@@ -165,9 +165,8 @@ def train_and_optimize_models(
 
     cw = 'balanced' if class_weight_auto else None
     models: dict[str, tuple[Any, dict[str, Any]]] = {
-        'Logistic Regression': (LogisticRegression(max_iter=2000, random_state=random_state, class_weight=cw), {
+        'Logistic Regression': (LogisticRegression(max_iter=2000, random_state=random_state, class_weight=cw, solver='lbfgs'), {
             'C': [0.01, 0.1, 1, 10],
-            'solver': ['liblinear']
         }),
         'K-Nearest Neighbors': (KNeighborsClassifier(), {
             'n_neighbors': [3, 5, 7],
