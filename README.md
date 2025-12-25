@@ -1,64 +1,131 @@
 # CS-245 AutoML System for Classification (Streamlit)
 
-A minimum-spec AutoML pipeline for supervised **classification** tasks:
-- Upload a CSV dataset
-- Automated EDA (missing values, correlations, distributions)
-- Issue detection + user-approved preprocessing choices
-- Train & tune multiple classifiers
-- Compare models and download results
-- Download a final Markdown report
+A full-featured AutoML pipeline for supervised **classification** tasks with an intuitive Streamlit UI.
 
-This repo is organized as a set of Python modules (Modules 1–8) with a Streamlit UI on top.
+## Live Demo
+[AutoML on Streamlit Cloud](https://automl-project.streamlit.app/)
 
-## Features (Minimum Spec)
-- Dataset upload + basic info (shape, dtypes, summary stats, class distribution)
-- EDA: missing value chart, correlation heatmap, numeric/categorical distributions, outlier boxplot
-- Issue detection: missing values, outliers, class imbalance, high-cardinality categoricals, constant features
-- Preprocessing (user-controlled): imputation, scaling (Standard/MinMax/none), encoding (OneHot/Ordinal), outlier handling
-- Training & tuning: Grid/Random search across LR, KNN, DT, NB, RF, SVM, and a baseline rule-based classifier
-- Metrics: accuracy, precision, recall, F1, confusion matrix, ROC-AUC (binary + multiclass when supported)
-- Comparison dashboard: ranking + bar chart + CSV download
-- Report: downloadable Markdown + PDF
+## Features
 
-## Run Locally
-### 1) Install
-1. Create/activate a Python environment (Python 3.9+ recommended)
-2. Install dependencies:
-   - `pip install -r requirements.txt`
+### Core AutoML Pipeline
+- **Dataset Upload**: CSV file support with automatic schema detection
+- **Automated EDA**: Missing values, correlations, distributions, outliers
+- **Issue Detection**: Missing values, outliers, class imbalance, high-cardinality categoricals, constant features
+- **Preprocessing**: User-controlled imputation, scaling (Standard/MinMax), encoding (OneHot/Ordinal), outlier handling
+- **Model Training**: Logistic Regression, KNN, Decision Tree, Naive Bayes, Random Forest, SVM, XGBoost, and baseline classifiers
+- **Hyperparameter Tuning**: Grid/Random/Halving search with cross-validation
+- **Evaluation Metrics**: Accuracy, Precision, Recall, F1, ROC-AUC, Confusion Matrix
 
-### 2) Run the app
-- `python -m streamlit run streamlit_app.py`
+### AI-Powered Chat Assistant
+- **Gemini Integration**: Chat with your dataset using Google's Gemini AI
+- **Context-Aware**: The chatbot understands your training results, best model, and data statistics
+- **Streamlit Cloud Ready**: Supports `st.secrets` and `.env` for API key configuration
 
-Optional flags:
-- Headless: `python -m streamlit run streamlit_app.py --server.headless true`
-- Custom port: `python -m streamlit run streamlit_app.py --server.port 8509`
+### User Experience
+- **Pipeline Progress Bar**: Visual indicator showing current step (1-6) in the AutoML workflow
+- **Data Quality Visualization**: Pie chart showing missing vs present data ratio
+- **Auto-Collapsing Sections**: EDA and preprocessing sections collapse after training to reduce clutter
+- **Tab-Based Results View**: Organized into Results Overview, Detailed Analysis, Chat, and Export tabs
+- **Fragment-Based Chat**: Chat interface uses `@st.fragment` to prevent page resets when messaging
+- **Responsive Tables**: Horizontal scroll support for wide data tables
 
-### 3) Run unit tests
-- `python -m unittest -q`
+### Export Options
+- **Markdown Report**: Styled, professional markdown export
+- **HTML Report**: Fully styled HTML with embedded CSS
+- **PDF Report**: Professional PDF with colored headers, formatted tables, and title page
+- **Model Export**: Download best model as joblib/pickle file
 
-## Deploy on Streamlit Cloud
-- Set the app entrypoint to: `streamlit_app.py`
-- Ensure `requirements.txt` is present at repo root
-- Push to GitHub and deploy via Streamlit Cloud UI
+## Installation
 
-App link (Streamlit Cloud): _add your deployed URL here_
+### Prerequisites
+- Python 3.9+
+- pip
+
+### Setup
+```bash
+# Clone the repository
+git clone https://github.com/codeNinja62/AutoML.git
+cd AutoML
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Set up API key for chat feature (optional)
+cp .env.example .env
+# Edit .env and add your GEMINI_API_KEY
+```
+
+### Run Locally
+```bash
+streamlit run streamlit_app.py
+```
+
+### Run Tests
+```bash
+python -m unittest -q
+```
+
+## Deployment on Streamlit Cloud
+
+1. Push to GitHub
+2. Connect repo on [share.streamlit.io](https://share.streamlit.io)
+3. Set entrypoint: `streamlit_app.py`
+4. Add secrets (Settings > Secrets):
+   ```toml
+   GEMINI_API_KEY = "your-api-key-here"
+   ```
 
 ## Project Structure
-- `streamlit_app.py` — Streamlit Cloud entrypoint
-- `project/modules/Module1.py` … `Module8.py` — modular pipeline implementation
-- `project/tests/` — unittest suite for Modules 1–7
-- `sample_dataset.csv` — small sample dataset for quick manual testing
+```
+AutoML/
+├── streamlit_app.py          # Main entry point
+├── modules/
+│   ├── Module1.py            # Data loading and schema detection
+│   ├── Module2.py            # EDA visualizations
+│   ├── Module3.py            # Issue detection
+│   ├── Module4.py            # Preprocessing pipeline
+│   ├── Module5.py            # Model training and optimization
+│   ├── Module6.py            # Model comparison and visualization
+│   ├── Module7.py            # Report generation (Markdown/PDF)
+│   ├── Module8.py            # Streamlit UI orchestration
+│   └── Module9.py            # Gemini chat integration
+├── requirements.txt          # Python dependencies
+├── .env.example              # Environment variable template
+└── assets/                   # UI assets (logo, etc.)
+```
 
-## Outputs
-From the app you can download:
-- Model comparison results as CSV
-- Final report as Markdown (and PDF if `fpdf2` is installed)
-- Best trained model as a single `joblib` file (an sklearn Pipeline that includes preprocessing + estimator)
+## Dependencies
+- streamlit
+- pandas, numpy
+- scikit-learn
+- matplotlib, seaborn
+- xgboost
+- google-generativeai (Gemini)
+- fpdf2 (PDF export)
+- tabulate (Markdown tables)
+- reportlab
+- joblib
+- python-dotenv
+
+## Configuration
+
+### Environment Variables
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `GEMINI_API_KEY` | Google Gemini API key for chat feature | No (chat disabled without it) |
+
+### Streamlit Secrets (for Cloud deployment)
+Add to `.streamlit/secrets.toml` or via Streamlit Cloud UI:
+```toml
+GEMINI_API_KEY = "your-api-key"
+```
 
 ## Troubleshooting
-- If Streamlit prints “Stopping…” and exits with a non-zero code, it’s often just the server shutting down (e.g., the process was interrupted). Re-run the command and keep the terminal open.
-- If deployment fails on Streamlit Cloud, confirm the entrypoint is `streamlit_app.py` and that `requirements.txt` installs cleanly.
 
-## Notes
-- Uploaded data is processed in-memory for the current session.
-- The downloaded best model is exported as a single sklearn Pipeline (preprocessor + estimator).
+| Issue | Solution |
+|-------|----------|
+| PDF export unavailable | Ensure `fpdf2` is installed: `pip install fpdf2` |
+| Chat not working | Check GEMINI_API_KEY in .env or st.secrets |
+| Table overflow | Tables now have horizontal scroll (CSS fix applied) |
+| Logistic Regression fails on multiclass | Fixed: Now uses `lbfgs` solver instead of `liblinear` |
+
