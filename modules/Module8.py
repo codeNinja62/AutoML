@@ -233,10 +233,10 @@ def _split_feasibility_hint(df: pd.DataFrame, target_col: str, test_ratio: float
 def _render_progress_bar(step: int):
     """Render a visual step indicator at the top of the page."""
     steps = [
-        ("Upload", 1),
+        ("Upload Dataset", 1),
         ("Understand", 2),
         ("Preprocess", 3),
-        ("Train", 4),
+        ("Train Model", 4),
         ("Compare", 5),
         ("Export", 6)
     ]
@@ -1976,6 +1976,9 @@ def _render_chat_module(df: pd.DataFrame, training_summary: str | None = None):
         st.session_state['chat_interface'] = ChatInterface()
     
     chat: ChatInterface = st.session_state['chat_interface']
+
+    # Debug info for API Key (masked)
+    st.info(f"DEBUG: Using API Key: `{chat.masked_key}`")
 
     # Sidebar configuration for API Key if not in env
     if not chat.is_configured():

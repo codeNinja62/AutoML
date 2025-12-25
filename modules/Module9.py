@@ -12,7 +12,7 @@ load_dotenv()
 
 class ChatInterface:
     def __init__(self, api_key: str | None = None):
-        # Priority: 1. Explicit arg, 2. st.secrets (Streamlit Cloud), 3. .env (local)
+        # Priority: 1. st.secrets (Streamlit Cloud), 2. .env (local), 3. Explicit arg
         import streamlit as st
         if api_key:
             self.api_key = api_key
