@@ -32,13 +32,19 @@ class ChatInterface:
         if self.api_key:
             os.environ["GEMINI_API_KEY"] = self.api_key
 
+        # show whether a key was loaded (do NOT print the key)
+        try:
+            st.info(f"API key loaded: {bool(self.api_key)}")
+        except Exception:
+            pass
+
         self.client: genai.Client | None = None
         self.system_prompt: str | None = None
         self.model = "gemini-2.5-flash"
 
         try:
-            # Use genai.Client() with the env var; matches the example usage you provided
-            self.client = genai.Client()
+            # Pass the key explicitly to avoid env var race / Cloud secrets issues
+            self.client = genai.Client(api_key=self.api_key) if self.api_key else genai.Client()
         except Exception as e:
             # Surface the error in Streamlit UI (so deployed app shows it)
             try:
