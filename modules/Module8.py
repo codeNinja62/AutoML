@@ -1025,7 +1025,7 @@ def _render_issue_detection_and_choices(df: pd.DataFrame, target_col: str) -> tu
     except Exception:
         pass
 
-    with st.expander('Before vs after (preview)', expanded=True):
+    if st.checkbox('Show Before vs after (preview)', value=True):
         c1, c2 = st.columns(2)
         with c1:
             st.write('Before')
