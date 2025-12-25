@@ -12,7 +12,14 @@ load_dotenv()
 
 class ChatInterface:
     def __init__(self, api_key: str | None = None):
-        self.api_key = api_key or os.getenv("GEMINI_API_KEY")
+        # Priority: 1. Explicit arg, 2. st.secrets (Streamlit Cloud), 3. .env (local)
+        import streamlit as st
+        if api_key:
+            self.api_key = api_key
+        elif "GEMINI_API_KEY" in st.secrets:
+            self.api_key = st.secrets["GEMINI_API_KEY"]
+        else:
+            self.api_key = os.getenv("GEMINI_API_KEY")
         self.model = None
         self.chat_session = None
         
