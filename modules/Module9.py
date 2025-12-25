@@ -1,4 +1,4 @@
-"""Module 9: Chat with Dataset using Gemini API."""
+"""Module 9: Chat with Dataset using Gemini API (google-genai SDK only)."""
 
 from __future__ import annotations
 
@@ -6,80 +6,66 @@ import os
 import pandas as pd
 from dotenv import load_dotenv
 
-# Prefer the new google-genai SDK; fall back to the deprecated google-generativeai
-try:  # New SDK (google-genai)
-    from google import genai  # type: ignore
-    _GENAI_MODE = "new"
-except Exception:  # pragma: no cover - keep legacy fallback for safety
-    try:
-        import google.generativeai as genai  # type: ignore
-        _GENAI_MODE = "legacy"
-    except Exception:
-        genai = None
-        _GENAI_MODE = "missing"
+from google import genai
 
 # Load environment variables
 load_dotenv()
 
+
 class ChatInterface:
     def __init__(self, api_key: str | None = None):
-        # Priority: 1. st.secrets (Streamlit Cloud), 2. .env (local), 3. Explicit arg
         import streamlit as st
+
+        # Priority: explicit arg > st.secrets > .env
         if api_key:
             self.api_key = api_key
         else:
-            # Try st.secrets first (for Streamlit Cloud), fallback to .env
             try:
                 self.api_key = st.secrets.get("GEMINI_API_KEY")
             except Exception:
                 self.api_key = None
-            
+
             if not self.api_key:
                 self.api_key = os.getenv("GEMINI_API_KEY")
-        
-        self.client = None
+
+        self.client: genai.Client | None = None
         self.chat_session = None
-        
-        if self.api_key and genai:
+
+        if self.api_key:
             try:
-                if _GENAI_MODE == "new":
-                    self.client = genai.Client(api_key=self.api_key)
-                elif _GENAI_MODE == "legacy":
-                    genai.configure(api_key=self.api_key)  # type: ignore[attr-defined]
-                    # Store model handle so we can start chats later
-                    self.client = genai.GenerativeModel("gemini-1.5-flash")
-                else:
-                    self.client = None
+                self.client = genai.Client(api_key=self.api_key)
             except Exception as e:
-                print(f"Failed to initialize Gemini Client: {e}")
+                print(f"Failed to initialize Gemini client: {e}")
 
     @property
     def masked_key(self) -> str:
-        """Return a masked view of the API key for safe debugging."""
         if not self.api_key:
             return "not set"
-        visible_tail = self.api_key[-4:]
-        masked = "*" * max(len(self.api_key) - 4, 0)
-        return f"{masked}{visible_tail}"
+        return "*" * (len(self.api_key) - 4) + self.api_key[-4:]
 
     def is_configured(self) -> bool:
         return self.client is not None
 
-    def start_new_chat(self, df: pd.DataFrame, training_results: str | None = None) -> None:
-        """Initialize a new chat session with dataset and training context."""
+    def start_new_chat(
+        self,
+        df: pd.DataFrame,
+        training_results: str | None = None,
+    ) -> None:
         if not self.client:
             return
 
-        # Create a context prompt about the dataset
         schema = str(df.dtypes)
-        summary = str(df.describe())
+        summary = str(df.describe(include="all"))
         head = str(df.head(5))
-        
-        training_context = f"\nMODEL TRAINING RESULTS:\n{training_results}" if training_results else ""
+
+        training_context = (
+            f"\nMODEL TRAINING RESULTS:\n{training_results}"
+            if training_results
+            else ""
+        )
 
         system_prompt = f"""
-You are an expert data science assistant. You help students understand their AutoML results.
-Here is the context of the dataset and the training results:
+You are an expert data science assistant helping students understand AutoML results.
 
 DATASET SCHEMA:
 {schema}
@@ -91,33 +77,35 @@ DATA PREVIEW:
 {head}
 {training_context}
 
-Please answer the user's questions based on this specific information. 
-If asked which model is best, refer to the training results.
-If asked about data patterns, refer to the schema and summary.
-Be highly specific, task-oriented, and educational. Avoid generic apologies.
+Rules:
+- Base answers strictly on the provided dataset and training results
+- If asked which model is best, use the training results
+- Be specific, technical, and educational
 """
+
         try:
-            if _GENAI_MODE == "new":
-                self.chat_session = self.client.chats.create(model="gemini-2.5-flash")
-                self.chat_session.send_message(system_prompt)
-            elif _GENAI_MODE == "legacy":
-                # Legacy SDK uses start_chat on the GenerativeModel instance
-                self.chat_session = self.client.start_chat(
-                    history=[{"role": "user", "parts": [system_prompt]}]
-                )
-            else:
-                self.chat_session = None
+            self.chat_session = self.client.chats.create(
+                model="gemini-2.5-flash"
+            )
+            self.chat_session.send_message(system_prompt)
+
         except Exception as e:
             print(f"Error initializing chat: {e}")
             self.chat_session = None
 
     def send_message(self, message: str) -> str:
-        """Send a message to the chat session and get response."""
         if not self.chat_session:
-            return "Chat session not initialized. Please configure API key and load a dataset."
-        
+            return "Chat session not initialized."
+
         try:
             response = self.chat_session.send_message(message)
-            return response.text
+
+            # Most common case
+            if hasattr(response, "text"):
+                return response.text
+
+            # Defensive fallback for structured responses
+            return response.candidates[0].content.parts[0].text
+
         except Exception as e:
             return f"Error communicating with Gemini: {e}"

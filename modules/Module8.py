@@ -1978,7 +1978,7 @@ def _render_chat_module(df: pd.DataFrame, training_summary: str | None = None):
     chat: ChatInterface = st.session_state['chat_interface']
 
     # Debug info for API Key (masked)
-    st.info(f"DEBUG: Using API Key: `{chat.masked_key}`")
+    # st.info(f"DEBUG: Using API Key: `{chat.masked_key}`")
 
     # Sidebar configuration for API Key if not in env
     if not chat.is_configured():
