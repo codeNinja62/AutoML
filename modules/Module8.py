@@ -1785,13 +1785,47 @@ def main():
             markdown_report = build_markdown_report(report_sections, title='CS-245 AutoML Report')
 
             with st.expander('Preview Final Report', expanded=False):
-                st.markdown(markdown_report)
+                # Styled preview with better formatting and table overflow fix
+                st.markdown("""
+                <style>
+                .report-preview { background: #f8f9fa; border-radius: 8px; padding: 15px; overflow-x: auto; }
+                .report-preview h2 { color: #2980b9; border-bottom: 2px solid #2980b9; padding-bottom: 5px; }
+                .report-preview table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 12px; }
+                .report-preview th { background: #34495e; color: white; padding: 8px; white-space: nowrap; }
+                .report-preview td { border: 1px solid #ddd; padding: 8px; max-width: 150px; overflow: hidden; text-overflow: ellipsis; }
+                /* Global table overflow fix */
+                .stDataFrame { overflow-x: auto !important; }
+                [data-testid="stDataFrame"] > div { overflow-x: auto !important; }
+                </style>
+                """, unsafe_allow_html=True)
+                st.markdown(f'<div class="report-preview">{markdown_report}</div>', unsafe_allow_html=True)
 
             c1, c2, c3 = st.columns(3)
             with c1:
-                st.download_button('Download report (Markdown)', data=markdown_report.encode('utf-8'), file_name='automl_report.md', mime='text/markdown')
+                st.download_button('Download Markdown', data=markdown_report.encode('utf-8'), file_name='automl_report.md', mime='text/markdown', type='primary')
             with c2:
-                st.download_button('Download report (HTML - Raw)', data=f"<html><body><pre>{markdown_report}</pre></body></html>".encode('utf-8'), file_name='automl_report_raw.html', mime='text/html')
+                # Better HTML export with styling
+                styled_html = f"""<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>AutoML Report</title>
+    <style>
+        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 900px; margin: 40px auto; padding: 20px; color: #333; }}
+        h1 {{ color: #2980b9; border-bottom: 3px solid #2980b9; padding-bottom: 10px; }}
+        h2 {{ color: #34495e; margin-top: 30px; }}
+        table {{ width: 100%; border-collapse: collapse; margin: 15px 0; }}
+        th {{ background: #34495e; color: white; padding: 12px 8px; text-align: left; }}
+        td {{ border: 1px solid #ddd; padding: 10px 8px; }}
+        tr:nth-child(even) {{ background: #f9f9f9; }}
+        pre {{ background: #f4f4f4; padding: 15px; border-radius: 5px; overflow-x: auto; }}
+    </style>
+</head>
+<body>
+{markdown_report}
+</body>
+</html>"""
+                st.download_button('Download HTML', data=styled_html.encode('utf-8'), file_name='automl_report.html', mime='text/html')
             with c3:
                 try:
                     st.download_button('Download report (PDF)', data=export_report_as_pdf_bytes(report_sections, title='CS-245 AutoML Report'), file_name='automl_report.pdf', mime='application/pdf')
@@ -1812,6 +1846,8 @@ def main():
     else:
         st.dataframe(comparison_df, use_container_width=True, height=260)
         st.warning('No successful models to select as best model.')
+
+@st.fragment
 def _render_chat_module(df: pd.DataFrame, training_summary: str | None = None):
     st.subheader("Chat with your Dataset")
     st.caption("Powered by Gemini API")
